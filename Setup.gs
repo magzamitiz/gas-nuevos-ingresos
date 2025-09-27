@@ -597,32 +597,38 @@ function removeWarmTriggers() {
 }
 
 /**
- * Habilitar el trigger dispatcher_v3 para procesamiento en segundo plano
+ * Limpieza completa de triggers y recreación del dispatcher_v3
  */
-function habilitarDispatcher() {
-  console.log('🔧 Habilitando trigger dispatcher_v3...');
+function limpiarYRecrearDispatcher() {
+  console.log('🧹 LIMPIEZA COMPLETA DE TRIGGERS DISPATCHER...');
   
   try {
-    // Eliminar TODOS los triggers dispatcher_v3 existentes (incluyendo versiones anteriores)
+    // 1. Eliminar TODOS los triggers existentes
     const triggers = ScriptApp.getProjectTriggers();
     console.log(`Encontrados ${triggers.length} triggers totales`);
     
     let deletedCount = 0;
     triggers.forEach(trigger => {
       const functionName = trigger.getHandlerFunction();
-      if (functionName === 'dispatcher_v3') {
-        console.log(`Eliminando trigger dispatcher_v3 (ID: ${trigger.getUniqueId()})`);
+      if (functionName === 'dispatcher_v3' || functionName.includes('dispatcher')) {
+        console.log(`🗑️ Eliminando trigger: ${functionName} (ID: ${trigger.getUniqueId()})`);
         ScriptApp.deleteTrigger(trigger);
         deletedCount++;
       }
     });
     
-    console.log(`✅ Eliminados ${deletedCount} triggers dispatcher_v3`);
+    console.log(`✅ Eliminados ${deletedCount} triggers relacionados con dispatcher`);
 
-    // Esperar un momento para que se procese la eliminación
-    Utilities.sleep(1000);
+    // 2. Esperar para que se procese la eliminación
+    Utilities.sleep(2000);
 
-    // Crear nuevo trigger dispatcher_v3 activo
+    // 3. Verificar que dispatcher_v3 existe como función
+    if (typeof dispatcher_v3 !== 'function') {
+      throw new Error('La función dispatcher_v3 no está disponible');
+    }
+    console.log('✅ Función dispatcher_v3 verificada');
+
+    // 4. Crear nuevo trigger dispatcher_v3 limpio
     const newTrigger = ScriptApp.newTrigger('dispatcher_v3')
       .timeBased()
       .everyMinutes(5)
@@ -631,20 +637,34 @@ function habilitarDispatcher() {
     console.log('✅ Trigger dispatcher_v3 RECURRENTE creado (cada 5 minutos)');
     console.log(`Nuevo trigger ID: ${newTrigger.getUniqueId()}`);
     
+    // 5. Verificar que se creó correctamente
+    const finalTriggers = ScriptApp.getProjectTriggers();
+    const dispatcherTriggers = finalTriggers.filter(t => t.getHandlerFunction() === 'dispatcher_v3');
+    
     return {
       success: true,
-      message: 'Dispatcher habilitado correctamente como trigger recurrente',
+      message: 'Dispatcher recreado exitosamente',
       deletedTriggers: deletedCount,
-      newTriggerId: newTrigger.getUniqueId()
+      newTriggerId: newTrigger.getUniqueId(),
+      activeTriggers: dispatcherTriggers.length
     };
     
   } catch (error) {
-    console.error('❌ Error habilitando dispatcher:', error);
+    console.error('❌ Error en limpieza completa:', error);
     return {
       success: false,
       error: error.message
     };
   }
+}
+
+/**
+ * Habilitar el trigger dispatcher_v3 para procesamiento en segundo plano
+ * @deprecated Usar limpiarYRecrearDispatcher() en su lugar
+ */
+function habilitarDispatcher() {
+  console.log('⚠️ habilitarDispatcher() está deprecado. Usando limpiarYRecrearDispatcher()...');
+  return limpiarYRecrearDispatcher();
 }
 
 function runWarmUpNow() {
