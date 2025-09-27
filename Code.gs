@@ -8,7 +8,6 @@
 // CONFIGURACIÓN CENTRALIZADA
 // =================================================================
 const CONFIG = {
-  // ⚠️ CAMBIAR ESTE ID POR EL DE TU SPREADSHEET
   SPREADSHEET_ID: "1dwuqpyMXWHJvnJHwDHCqFMvgdYhypE2W1giH6bRZMKc",
   
   // Hojas
