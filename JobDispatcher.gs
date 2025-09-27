@@ -71,7 +71,15 @@ function processJobBatch() {
     
     if (pendingJobs.length === 0) {
       console.log('📋 No hay trabajos pendientes');
-      stats.remainingJobs = otherJobs.length;
+      stats.remainingJobs = 0; // ✅ CORRECCIÓN: solo trabajos PENDING son "restantes"
+      
+      // Opcional: informar sobre trabajos completados/fallidos
+      if (otherJobs.length > 0) {
+        const completed = otherJobs.filter(j => j.status === 'COMPLETED').length;
+        const failed = otherJobs.filter(j => j.status === 'FAILED').length;
+        console.log(`📊 En historial: ${completed} completados, ${failed} fallidos`);
+      }
+      
       return stats;
     }
     
@@ -291,6 +299,92 @@ function updateJobResult(rowNum, result) {
     console.error('❌ Error actualizando resultado en hoja:', error);
     return { success: false, error: error.message };
   }
+}
+
+// =================================================================
+// FUNCIONES DE LIMPIEZA Y MANTENIMIENTO
+// =================================================================
+
+/**
+ * Limpia la cola de trabajos, eliminando trabajos completados/fallidos
+ */
+function limpiarColaCompleta() {
+  console.log('🧹 Limpiando cola de trabajos completamente...');
+  
+  const queue = PropertiesService.getScriptProperties();
+  
+  try {
+    // Limpiar solo trabajos completados/fallidos, conservar pendientes
+    const currentQueue = queue.getProperty('JOB_QUEUE_V3') || '[]';
+    const jobs = JSON.parse(currentQueue);
+    
+    const pendingJobs = jobs.filter(job => job.status === 'PENDING');
+    const removedCount = jobs.length - pendingJobs.length;
+    
+    queue.setProperty('JOB_QUEUE_V3', JSON.stringify(pendingJobs));
+    
+    console.log(`✅ Cola limpiada. ${removedCount} trabajos antiguos eliminados`);
+    console.log(`📋 ${pendingJobs.length} trabajos pendientes conservados`);
+    
+    return {
+      success: true,
+      pendingJobs: pendingJobs.length,
+      removedJobs: removedCount
+    };
+    
+  } catch (error) {
+    console.error('❌ Error limpiando cola:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Verifica el estado actual de la cola de trabajos
+ */
+function verEstadoCola() {
+  const queue = PropertiesService.getScriptProperties();
+  const currentQueue = queue.getProperty('JOB_QUEUE_V3') || '[]';
+  const jobs = JSON.parse(currentQueue);
+  
+  const stats = {
+    total: jobs.length,
+    pending: jobs.filter(j => j.status === 'PENDING').length,
+    completed: jobs.filter(j => j.status === 'COMPLETED').length,
+    failed: jobs.filter(j => j.status === 'FAILED').length,
+    processing: jobs.filter(j => j.status === 'PROCESSING').length
+  };
+  
+  console.log('📊 ESTADO DE LA COLA:');
+  console.log(`Total: ${stats.total}`);
+  console.log(`Pendientes: ${stats.pending}`);
+  console.log(`Completados: ${stats.completed}`);
+  console.log(`Fallidos: ${stats.failed}`);
+  console.log(`Procesando: ${stats.processing}`);
+  
+  return stats;
+}
+
+/**
+ * Vacía completamente la cola de trabajos (usar con precaución)
+ */
+function vaciarColaCompleta() {
+  console.log('⚠️ VACIANDO cola de trabajos completamente...');
+  
+  const queue = PropertiesService.getScriptProperties();
+  const currentQueue = queue.getProperty('JOB_QUEUE_V3') || '[]';
+  const jobs = JSON.parse(currentQueue);
+  
+  queue.deleteProperty('JOB_QUEUE_V3');
+  
+  console.log(`✅ Cola vaciada. ${jobs.length} trabajos eliminados`);
+  
+  return {
+    success: true,
+    removedJobs: jobs.length
+  };
 }
 
 // =================================================================
