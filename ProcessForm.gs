@@ -30,46 +30,71 @@ function processForm_fastPath(formData) {
     }
     const sanitizedData = validation.sanitized;
 
-    // 2. Chequeo rápido de duplicados contra el índice (rápido)
+    // 2. DETECCIÓN SÍNCRONA DE DUPLICADOS (antes de guardar)
     const dedupKey = DedupIndexService.generateKey(sanitizedData);
-    const indexKeySet = DedupIndexService.getIndexKeySet(); // Usa caché, es rápido.
-    const isPotentialDuplicate = dedupKey ? indexKeySet.has(dedupKey) : false;
+    const indexKeySet = DedupIndexService.getIndexKeySet();
+    const isExactDuplicate = dedupKey ? indexKeySet.has(dedupKey) : false;
+    
+    // 3. Si hay duplicado exacto, rechazar inmediatamente
+    if (isExactDuplicate) {
+      return {
+        status: 'duplicate',
+        message: 'Ya existe un registro con estos datos exactos (nombre y teléfono)',
+        duplicateType: 'exact'
+      };
+    }
+    
+    // 4. Verificación difusa SÍNCRONA (antes de guardar)
+    const fuzzyDetector = new FuzzyDuplicateDetector();
+    const fuzzyResult = fuzzyDetector.findFuzzyDuplicates(sanitizedData);
+    
+    // 5. Si hay duplicado difuso con alta confianza, rechazar
+    if (fuzzyResult.hasDuplicates && fuzzyResult.matches.length > 0) {
+      const topMatch = fuzzyResult.matches[0];
+      if (topMatch.confidence > 0.8) { // Umbral alto para rechazo automático
+        const confidencePercent = Math.round(topMatch.confidence * 100);
+        return {
+          status: 'duplicate',
+          message: `Posible duplicado detectado (${confidencePercent}% de similitud). Por favor verifica los datos.`,
+          duplicateType: 'fuzzy',
+          confidence: topMatch.confidence,
+          matchId: topMatch.id
+        };
+      }
+    }
+    
+    // 6. Preparar y guardar registro (solo si NO es duplicado)
+    const registrationService = new RegistrationService();
+    const newId = registrationService.generateUniqueId();
     const searchKey = Utils.createSearchKey(
       sanitizedData.almaNombres,
       sanitizedData.almaApellidos
     );
     
-    // 3. Preparar y guardar registro MÍNIMO (sin jerarquía)
-    const registrationService = new RegistrationService();
-    const newId = registrationService.generateUniqueId();
-    // Pasamos null para la jerarquía, los campos se rellenarán con "PENDIENTE"
-    const initialState = 'PROCESANDO';
-    const initialRevision = isPotentialDuplicate
-      ? 'PROCESANDO (POSIBLE DUPLICADO EXACTO)'
-      : 'PROCESANDO';
-    const record = registrationService.prepareRecord(newId, sanitizedData, null, {
-      initialState,
-      initialRevision,
+    // Obtener jerarquía de líderes síncronamente
+    const catalogService = new CatalogService();
+    const hierarchy = catalogService.getLeaderHierarchy(sanitizedData.liderCasaDeFeId);
+    
+    const record = registrationService.prepareRecord(newId, sanitizedData, hierarchy, {
+      initialState: 'OK',
+      initialRevision: fuzzyResult.hasDuplicates ? 'REVISAR DUPLICADO DIFUSO' : 'OK',
       placeholderValue: '',
       searchKey
     });
 
     const newRowNum = fastAppend(record);
     
-    // 4. ENCOLAR trabajo para procesamiento asíncrono (NO ejecutar ahora)
-    FastPathCore.enqueueJob({
-      rowNum: newRowNum,
-      id: newId,
-      searchKey: searchKey,
-      payload: sanitizedData,
-      timestamp: new Date().toISOString()
-    });
+    // 7. Actualizar índice de duplicados
+    if (dedupKey) {
+      DedupIndexService.appendToIndexSheet(dedupKey, newRowNum);
+    }
 
-    // 5. Responder inmediatamente al usuario
+    // 8. Responder al usuario con resultado inmediato
     return {
       status: 'success',
       id: newId,
-      message: 'Registro ' + newId + ' recibido. Se está procesando en segundo plano.'
+      message: 'Registro guardado exitosamente',
+      fuzzyWarnings: fuzzyResult.hasDuplicates ? fuzzyResult.matches : null
     };
 
   } catch (error) {

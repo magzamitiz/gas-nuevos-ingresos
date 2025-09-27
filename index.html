@@ -1636,7 +1636,15 @@
             APP.isLoading = false;
             
             if (response.status === 'success') {
-                showStatus('success', `✅ ¡Registro exitoso! ID: ${response.id}`);
+                let message = `✅ ¡Registro exitoso! ID: ${response.id}`;
+                
+                // Mostrar advertencias de duplicados difusos si las hay
+                if (response.fuzzyWarnings && response.fuzzyWarnings.length > 0) {
+                    const confidence = Math.round(response.fuzzyWarnings[0].confidence * 100);
+                    message += `\n⚠️ Advertencia: Posible similitud (${confidence}%) con registros existentes`;
+                }
+                
+                showStatus('success', message);
                 
                 // Resetear formulario después de 3 segundos
                 setTimeout(() => {
@@ -1649,7 +1657,16 @@
                 }, 3000);
                 
             } else if (response.status === 'duplicate') {
-                showStatus('warning', `⚠️ ${response.message}`);
+                let message = `⚠️ ${response.message}`;
+                
+                if (response.duplicateType === 'exact') {
+                    showStatus('error', `❌ ${message}`);
+                } else if (response.duplicateType === 'fuzzy') {
+                    showStatus('warning', `⚠️ ${message}`);
+                } else {
+                    showStatus('warning', message);
+                }
+                
                 document.getElementById('submitBtn').disabled = false;
                 document.getElementById('prevBtn').disabled = false;
                 

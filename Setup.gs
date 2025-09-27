@@ -596,6 +596,57 @@ function removeWarmTriggers() {
   console.log('✅ Todos los triggers de warming eliminados.');
 }
 
+/**
+ * Habilitar el trigger dispatcher_v3 para procesamiento en segundo plano
+ */
+function habilitarDispatcher() {
+  console.log('🔧 Habilitando trigger dispatcher_v3...');
+  
+  try {
+    // Eliminar TODOS los triggers dispatcher_v3 existentes (incluyendo versiones anteriores)
+    const triggers = ScriptApp.getProjectTriggers();
+    console.log(`Encontrados ${triggers.length} triggers totales`);
+    
+    let deletedCount = 0;
+    triggers.forEach(trigger => {
+      const functionName = trigger.getHandlerFunction();
+      if (functionName === 'dispatcher_v3') {
+        console.log(`Eliminando trigger dispatcher_v3 (ID: ${trigger.getUniqueId()})`);
+        ScriptApp.deleteTrigger(trigger);
+        deletedCount++;
+      }
+    });
+    
+    console.log(`✅ Eliminados ${deletedCount} triggers dispatcher_v3`);
+
+    // Esperar un momento para que se procese la eliminación
+    Utilities.sleep(1000);
+
+    // Crear nuevo trigger dispatcher_v3 activo
+    const newTrigger = ScriptApp.newTrigger('dispatcher_v3')
+      .timeBased()
+      .everyMinutes(5)
+      .create();
+
+    console.log('✅ Trigger dispatcher_v3 RECURRENTE creado (cada 5 minutos)');
+    console.log(`Nuevo trigger ID: ${newTrigger.getUniqueId()}`);
+    
+    return {
+      success: true,
+      message: 'Dispatcher habilitado correctamente como trigger recurrente',
+      deletedTriggers: deletedCount,
+      newTriggerId: newTrigger.getUniqueId()
+    };
+    
+  } catch (error) {
+    console.error('❌ Error habilitando dispatcher:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
 function runWarmUpNow() {
   console.log('⚡ Ejecutando warming manual ahora...');
   warmAllCaches();
