@@ -1631,6 +1631,8 @@
         
         function handleSubmitSuccess(response) {
             document.getElementById('loader').classList.remove('show');
+            document.getElementById('submitBtn').disabled = false;
+            document.getElementById('prevBtn').disabled = false;
             APP.isLoading = false;
             
             if (response.status === 'success') {
