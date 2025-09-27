@@ -86,7 +86,8 @@ class SystemInstaller {
           'Nombres del Alma', 'Apellidos del Alma', 'Teléfono', 'Dirección',
           'Sexo', 'Rango de Edad', 'Aceptó a Jesús', '¿Desea Visita?',
           'Petición de Oración', '¿Responsable de Seguimiento?',
-          'Tel_Normalizado', 'NombreClave_Normalizado', 'Estado_Revision'
+          'Tel_Normalizado', 'NombreClave_Normalizado', 'Estado_Revision',
+          'Estado', '#REF!', 'KEY_BUSQUEDA'
         ]
       },
       {
@@ -317,6 +318,52 @@ function getSystemStatus() {
 }
 
 /**
+ * Verificar triggers activos en el proyecto
+ */
+function verificarTriggers() {
+  console.log('🔍 Verificando triggers activos en el proyecto...');
+  
+  const triggers = ScriptApp.getProjectTriggers();
+  
+  if (triggers.length === 0) {
+    console.log('❌ No hay triggers configurados');
+    console.log('💡 Recomendación: Ejecutar installWarmTrigger() para configurar triggers de warming');
+    return {
+      success: false,
+      message: 'No hay triggers configurados',
+      triggers: []
+    };
+  } else {
+    console.log(`✅ Se encontraron ${triggers.length} triggers activos:`);
+    
+    const triggerInfo = triggers.map((trigger, index) => {
+      const info = {
+        index: index + 1,
+        function: trigger.getHandlerFunction(),
+        type: trigger.getEventType(),
+        source: trigger.getTriggerSource(),
+        uniqueId: trigger.getUniqueId()
+      };
+      
+      console.log(`Trigger ${info.index}:`);
+      console.log(`  - Función: ${info.function}`);
+      console.log(`  - Tipo: ${info.type}`);
+      console.log(`  - Fuente: ${info.source}`);
+      console.log(`  - ID único: ${info.uniqueId}`);
+      console.log('---');
+      
+      return info;
+    });
+    
+    return {
+      success: true,
+      message: `${triggers.length} triggers activos`,
+      triggers: triggerInfo
+    };
+  }
+}
+
+/**
  * Test rápido para verificar funcionamiento
  */
 function runQuickTest() {
@@ -532,10 +579,10 @@ function installWarmTrigger() {
 
   ScriptApp.newTrigger('warmAllCaches')
     .timeBased()
-    .everyMinutes(25)
+    .everyMinutes(30)
     .create();
 
-  console.log('✅ Trigger de warming global instalado para "warmAllCaches" (cada 25 minutos).');
+  console.log('✅ Trigger de warming global instalado para "warmAllCaches" (cada 30 minutos).');
 }
 
 function removeWarmTriggers() {

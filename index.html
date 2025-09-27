@@ -1615,7 +1615,7 @@
             google.script.run
                 .withSuccessHandler(handleSubmitSuccess)
                 .withFailureHandler(handleSubmitError)
-                .processForm(formData);
+                .processForm_v3(formData);
             
             // Timeout de seguridad
             setTimeout(() => {
@@ -1657,12 +1657,21 @@
         }
         
         function handleSubmitError(error) {
+            console.error('Error en envío:', error);
             document.getElementById('loader').classList.remove('show');
             document.getElementById('submitBtn').disabled = false;
             document.getElementById('prevBtn').disabled = false;
             APP.isLoading = false;
             
-            showStatus('error', `❌ Error: ${error}`);
+            // Manejar diferentes tipos de error
+            let errorMessage = 'Error desconocido';
+            if (typeof error === 'string') {
+                errorMessage = error;
+            } else if (error && error.message) {
+                errorMessage = error.message;
+            }
+            
+            showStatus('error', `❌ Error: ${errorMessage}`);
         }
         
         // Utilidades
