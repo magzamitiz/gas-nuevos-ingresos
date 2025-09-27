@@ -257,7 +257,7 @@ class FuzzyDuplicateDetector {
    */
   getCandidateRecords(data) {
     const startTime = Date.now();
-    console.log('⚡️ Obteniendo candidatos con BÚSQUEDA OPTIMIZADA (TextFinder)...');
+    console.log('⚡️ Obteniendo candidatos con BÚSQUEDA OPTIMIZADA (TextFinder por lotes)...');
     
     const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
     const sheet = ss.getSheetByName(CONFIG.SHEETS.INGRESOS);
@@ -273,31 +273,52 @@ class FuzzyDuplicateDetector {
     const targetKey = Utils.createSearchKey(data.almaNombres, data.almaApellidos);
     
     const candidateRows = new Set(); // Usamos un Set para evitar filas duplicadas
+    const lastRow = sheet.getLastRow();
+    const totalDataRows = lastRow - 1; // Excluyendo header
+    const batchSize = 1000; // Tamaño de lote para procesamiento
 
-    // Búsqueda 1: Por número de teléfono exacto (OPTIMIZADA)
-    if (phoneCol > 0 && targetPhone) {
-        const lastRow = sheet.getLastRow();
-        if (lastRow > 1) {
-            // Limitar búsqueda a máximo 1000 filas para evitar timeouts
-            const searchRows = Math.min(lastRow - 1, 1000);
-            const phoneFinder = sheet.getRange(2, phoneCol, searchRows, 1).createTextFinder(targetPhone).matchEntireCell(true).findAll();
-            phoneFinder.forEach(range => candidateRows.add(range.getRow()));
+    // Búsqueda 1: Por número de teléfono exacto (POR LOTES)
+    if (phoneCol > 0 && targetPhone && totalDataRows > 0) {
+        const totalBatches = Math.ceil(totalDataRows / batchSize);
+        console.log(`📞 Búsqueda por teléfono en ${totalBatches} lotes de ${batchSize} filas...`);
+        
+        for (let batch = 0; batch < totalBatches; batch++) {
+            const startRow = 2 + (batch * batchSize); // Empezar desde fila 2 (después del header)
+            const batchRows = Math.min(batchSize, totalDataRows - (batch * batchSize));
+            
+            if (batchRows > 0) {
+                const phoneFinder = sheet.getRange(startRow, phoneCol, batchRows, 1)
+                    .createTextFinder(targetPhone)
+                    .matchEntireCell(true)
+                    .findAll();
+                phoneFinder.forEach(range => candidateRows.add(range.getRow()));
+            }
         }
+        console.log(`📞 Búsqueda por teléfono completada: ${candidateRows.size} candidatos encontrados`);
     }
 
-    // Búsqueda 2: Por clave de nombre (OPTIMIZADA)
-    if (keyCol > 0 && targetKey) {
-        const lastRow = sheet.getLastRow();
-        if (lastRow > 1) {
-            // Limitar búsqueda a máximo 1000 filas para evitar timeouts
-            const searchRows = Math.min(lastRow - 1, 1000);
-            const keyFinder = sheet.getRange(2, keyCol, searchRows, 1).createTextFinder(targetKey).matchEntireCell(true).findAll();
-            keyFinder.forEach(range => candidateRows.add(range.getRow()));
+    // Búsqueda 2: Por clave de nombre (POR LOTES)
+    if (keyCol > 0 && targetKey && totalDataRows > 0) {
+        const totalBatches = Math.ceil(totalDataRows / batchSize);
+        console.log(`🔑 Búsqueda por clave en ${totalBatches} lotes de ${batchSize} filas...`);
+        
+        for (let batch = 0; batch < totalBatches; batch++) {
+            const startRow = 2 + (batch * batchSize); // Empezar desde fila 2 (después del header)
+            const batchRows = Math.min(batchSize, totalDataRows - (batch * batchSize));
+            
+            if (batchRows > 0) {
+                const keyFinder = sheet.getRange(startRow, keyCol, batchRows, 1)
+                    .createTextFinder(targetKey)
+                    .matchEntireCell(true)
+                    .findAll();
+                keyFinder.forEach(range => candidateRows.add(range.getRow()));
+            }
         }
+        console.log(`🔑 Búsqueda por clave completada: ${candidateRows.size} candidatos totales`);
     }
     
     const uniqueRows = Array.from(candidateRows);
-    console.log(`🎯 Búsqueda optimizada encontró ${uniqueRows.length} filas candidatas.`);
+    console.log(`🎯 Búsqueda optimizada encontró ${uniqueRows.length} filas candidatas únicas.`);
 
     if (uniqueRows.length === 0) {
         const duration = Date.now() - startTime;
@@ -305,13 +326,14 @@ class FuzzyDuplicateDetector {
         return [];
     }
 
-    // Leer los datos de las filas candidatas en una sola operación si es posible
+    // Leer los datos de las filas candidatas en una sola operación
     const candidates = [];
     const fullRange = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn());
+    const sheetValues = fullRange.getValues(); // Una sola llamada a getValues()
 
     uniqueRows.forEach(rowNum => {
-        // Obtenemos los valores de la fila específica que ya tenemos en memoria
-        const rowData = fullRange.getValues()[rowNum - 1];
+        // Obtenemos los valores de la fila específica desde el array en memoria
+        const rowData = sheetValues[rowNum - 1];
         const record = {
             id: rowData[headers.indexOf('ID_Alma')],
             nombres: rowData[headers.indexOf('Nombres del Alma')],
@@ -324,7 +346,7 @@ class FuzzyDuplicateDetector {
     });
 
     const duration = Date.now() - startTime;
-    console.log(`⚡️ Candidatos obtenidos en ${duration}ms (${candidates.length} registros)`);
+    console.log(`⚡️ Candidatos obtenidos en ${duration}ms (${candidates.length} registros de ${totalDataRows} filas totales)`);
     return candidates;
   }
 
