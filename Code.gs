@@ -428,9 +428,9 @@ class ErrorHandler {
         JSON.stringify(errorDetails)
       ];
       
-      // 🚀 Usar fastAppend para logs de error
+      // 🚀 Usar fastAppendToSheet para logs de error (evita contaminar hoja de Ingresos)
       try {
-        fastAppend(errorData);
+        fastAppendToSheet(CONFIG.SHEETS.ERRORS, errorData);
       } catch (appendError) {
         // Fallback directo para errores críticos
         sheet.appendRow(errorData);

@@ -751,13 +751,19 @@ class RegistrationService {
 // UTILIDADES DE ESCRITURA RÁPIDA (Sheets API)
 // =================================================================
 
-function fastAppend(record) {
+/**
+ * Helper reutilizable para anexar registros a cualquier hoja usando Sheets API
+ * @param {string} sheetName - Nombre de la hoja de destino
+ * @param {Array} record - Array de datos a anexar
+ * @returns {number} - Número de fila donde se insertó el registro
+ */
+function fastAppendToSheet(sheetName, record) {
   const startTime = Date.now();
   try {
     const response = Sheets.Spreadsheets.Values.append(
       { values: [record] },
       CONFIG.SPREADSHEET_ID,
-      CONFIG.SHEETS.INGRESOS + '!A1',
+      sheetName + '!A1',
       {
         valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS'
@@ -773,19 +779,28 @@ function fastAppend(record) {
     }
 
     const sheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID)
-      .getSheetByName(CONFIG.SHEETS.INGRESOS);
+      .getSheetByName(sheetName);
     return sheet.getLastRow();
 
   } catch (error) {
-    console.warn('fastAppend: Sheets API falló, utilizando appendRow. Detalle: ' + error.message);
+    console.warn(`fastAppendToSheet(${sheetName}): Sheets API falló, utilizando appendRow. Detalle: ${error.message}`);
     const sheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID)
-      .getSheetByName(CONFIG.SHEETS.INGRESOS);
+      .getSheetByName(sheetName);
     sheet.appendRow(record);
     return sheet.getLastRow();
   } finally {
     const duration = Date.now() - startTime;
-    console.log('fastAppend completado en ' + duration + 'ms');
+    console.log(`fastAppendToSheet(${sheetName}) completado en ${duration}ms`);
   }
+}
+
+/**
+ * Wrapper para anexar registros a la hoja de Ingresos
+ * @param {Array} record - Array de datos a anexar
+ * @returns {number} - Número de fila donde se insertó el registro
+ */
+function fastAppend(record) {
+  return fastAppendToSheet(CONFIG.SHEETS.INGRESOS, record);
 }
 
 // =================================================================
