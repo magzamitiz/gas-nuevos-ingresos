@@ -251,78 +251,80 @@ class FuzzyDuplicateDetector {
   }
 
   /**
-   * Obtiene registros candidatos para comparación de almas (duplicados)
+   * Obtiene registros candidatos para comparación de almas (duplicados) de forma OPTIMIZADA.
    * @param {Object} data - Datos del nuevo registro
    * @returns {Array} - Array de registros candidatos
    */
   getCandidateRecords(data) {
     const startTime = Date.now();
-    console.log('🔍 Obteniendo candidatos con filtros inteligentes...');
+    console.log('⚡️ Obteniendo candidatos con BÚSQUEDA OPTIMIZADA (TextFinder)...');
     
     const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
     const sheet = ss.getSheetByName(CONFIG.SHEETS.INGRESOS);
-    
     if (!sheet || sheet.getLastRow() < 2) {
-      return [];
+        return [];
     }
 
-    // Obtener headers para mapeo correcto
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     const phoneCol = headers.indexOf('Tel_Normalizado') + 1;
     const keyCol = headers.indexOf('KEY_BUSQUEDA') + 1;
-    
-    // Filtros inteligentes
+
     const targetPhone = String(data.almaTelefono || '').replace(/\D/g, '');
     const targetKey = Utils.createSearchKey(data.almaNombres, data.almaApellidos);
-    const targetPrefix = targetKey.substring(0, 3);
-
-    // Leer solo las columnas necesarias para filtrar
-    const lastRow = sheet.getLastRow();
-    const phoneData = phoneCol > 0 ? sheet.getRange(2, phoneCol, lastRow - 1, 1).getValues() : [];
-    const keyData = keyCol > 0 ? sheet.getRange(2, keyCol, lastRow - 1, 1).getValues() : [];
     
-    // Pre-filtrar filas candidatas (mucho más rápido)
-    const candidateRows = [];
-    for (let i = 0; i < Math.min(phoneData.length, keyData.length); i++) {
-      const rowPhone = String(phoneData[i][0] || '').replace(/\D/g, '');
-      const rowKey = String(keyData[i][0] || '');
-      
-      // Incluir si: mismo teléfono O prefijo similar de nombres
-      if (rowPhone === targetPhone || 
-          (rowKey && rowKey.substring(0, 3) === targetPrefix)) {
-        candidateRows.push(i + 2); // +2 porque sheet es 1-indexed y empezamos en fila 2
-      }
+    const candidateRows = new Set(); // Usamos un Set para evitar filas duplicadas
+
+    // Búsqueda 1: Por número de teléfono exacto (OPTIMIZADA)
+    if (phoneCol > 0 && targetPhone) {
+        const lastRow = sheet.getLastRow();
+        if (lastRow > 1) {
+            // Limitar búsqueda a máximo 1000 filas para evitar timeouts
+            const searchRows = Math.min(lastRow - 1, 1000);
+            const phoneFinder = sheet.getRange(2, phoneCol, searchRows, 1).createTextFinder(targetPhone).matchEntireCell(true).findAll();
+            phoneFinder.forEach(range => candidateRows.add(range.getRow()));
+        }
     }
 
-    // Limitar a máximo 100 candidatos
-    const limitedRows = candidateRows.slice(0, 100);
+    // Búsqueda 2: Por clave de nombre (OPTIMIZADA)
+    if (keyCol > 0 && targetKey) {
+        const lastRow = sheet.getLastRow();
+        if (lastRow > 1) {
+            // Limitar búsqueda a máximo 1000 filas para evitar timeouts
+            const searchRows = Math.min(lastRow - 1, 1000);
+            const keyFinder = sheet.getRange(2, keyCol, searchRows, 1).createTextFinder(targetKey).matchEntireCell(true).findAll();
+            keyFinder.forEach(range => candidateRows.add(range.getRow()));
+        }
+    }
     
-    console.log(`🎯 Pre-filtrado: ${limitedRows.length} candidatos de ${lastRow - 1} registros`);
+    const uniqueRows = Array.from(candidateRows);
+    console.log(`🎯 Búsqueda optimizada encontró ${uniqueRows.length} filas candidatas.`);
 
-    // Leer solo las filas candidatas
+    if (uniqueRows.length === 0) {
+        const duration = Date.now() - startTime;
+        console.log(`⚡️ Búsqueda completada en ${duration}ms. Sin candidatos.`);
+        return [];
+    }
+
+    // Leer los datos de las filas candidatas en una sola operación si es posible
     const candidates = [];
-    limitedRows.forEach(rowNum => {
-      const rowData = sheet.getRange(rowNum, 1, 1, 25).getValues()[0];
-      const id = rowData[0];
-      const nombres = rowData[13];
-      const apellidos = rowData[14];
-      const telefono = rowData[15];
-      const nombreClave = rowData[24];
+    const fullRange = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn());
 
-      if (id && nombres && apellidos) {
-        candidates.push({
-          id: id,
-          nombres: nombres,
-          apellidos: apellidos,
-          telefono: telefono,
-          nombreClave: nombreClave,
-          nombreCompleto: `${nombres} ${apellidos}`
-        });
-      }
+    uniqueRows.forEach(rowNum => {
+        // Obtenemos los valores de la fila específica que ya tenemos en memoria
+        const rowData = fullRange.getValues()[rowNum - 1];
+        const record = {
+            id: rowData[headers.indexOf('ID_Alma')],
+            nombres: rowData[headers.indexOf('Nombres del Alma')],
+            apellidos: rowData[headers.indexOf('Apellidos del Alma')],
+            telefono: rowData[headers.indexOf('Teléfono')],
+            nombreClave: rowData[headers.indexOf('KEY_BUSQUEDA')]
+        };
+        record.nombreCompleto = `${record.nombres} ${record.apellidos}`;
+        candidates.push(record);
     });
 
     const duration = Date.now() - startTime;
-    console.log(`⚡ Candidatos obtenidos en ${duration}ms (${candidates.length} registros)`);
+    console.log(`⚡️ Candidatos obtenidos en ${duration}ms (${candidates.length} registros)`);
     return candidates;
   }
 

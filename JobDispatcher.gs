@@ -152,80 +152,82 @@ function processJobBatch() {
  * @returns {Object} - Resultado del procesamiento
  */
 function processIndividualJob(job) {
-  const startTime = Date.now();
-  
-  try {
-    // 1. Obtener jerarquía de líderes
-    console.log(`🏗️ Obteniendo jerarquía para líder ${job.payload.liderCasaDeFeId}...`);
-    const catalogService = new CatalogService();
-    const hierarchy = catalogService.getLeaderHierarchy(job.payload.liderCasaDeFeId);
-    
-    // 2. Verificación difusa si no hay duplicado exacto
-    let fuzzyResult = { hasDuplicates: false, confidence: 0, matches: [] };
-    let finalStatus = 'OK';
-    
-    if (job.maybeDuplicate) {
-      finalStatus = 'REVISAR DUPLICADO EXACTO';
-      console.log(`⚠️ Duplicado exacto detectado previamente`);
-    } else {
-      console.log(`🔍 Ejecutando verificación difusa...`);
-      try {
-        const fuzzyDetector = new FuzzyDuplicateDetector();
-        fuzzyResult = fuzzyDetector.findMatches(job.payload);
-        
-        if (fuzzyResult.hasDuplicates && fuzzyResult.confidence > 0.7) {
-          const confidencePercent = Math.round(fuzzyResult.confidence * 100);
-          finalStatus = `REVISAR DUPLICADO (DIFUSO ${confidencePercent}%)`;
-          if (fuzzyResult.matches && fuzzyResult.matches.length > 0) {
-            finalStatus += `: ID ${fuzzyResult.matches[0].id}`;
-          }
-          console.log(`⚠️ Duplicado difuso detectado: ${confidencePercent}% confianza`);
-        } else {
-          console.log(`✅ No se detectaron duplicados difusos`);
+    const startTime = Date.now();
+    try {
+        // --- NUEVA VERIFICACIÓN ---
+        // Revisa si el 'payload' con los datos del formulario existe en el objeto 'job'
+        if (!job.payload || !job.payload.liderCasaDeFeId) {
+            throw new Error(`El trabajo para la fila ${job.rowNum} está corrupto o no contiene 'payload'. Datos del trabajo: ${JSON.stringify(job)}`);
         }
-      } catch (fuzzyError) {
-        console.warn(`⚠️ Error en verificación difusa: ${fuzzyError.message}`);
-        // Continuar sin bloquear el proceso
-      }
+        // --- FIN DE LA VERIFICACIÓN ---
+
+        // 1. Obtener jerarquía de líderes
+        console.log(`🏗️ Obteniendo jerarquía para líder ${job.payload.liderCasaDeFeId}...`);
+        const catalogService = new CatalogService();
+        const hierarchy = catalogService.getLeaderHierarchy(job.payload.liderCasaDeFeId);
+
+        // 2. Verificación difusa si no hay duplicado exacto
+        let fuzzyResult = { hasDuplicates: false, confidence: 0, matches: [] };
+        let finalStatus = 'OK';
+
+        if (job.maybeDuplicate) {
+            finalStatus = 'REVISAR DUPLICADO EXACTO';
+            console.log(`⚠️ Duplicado exacto detectado previamente`);
+        } else {
+            console.log(`🔍 Ejecutando verificación difusa...`);
+            try {
+                const fuzzyDetector = new FuzzyDuplicateDetector();
+                // NOTA: La función original 'findMatches' no existe en FuzzyDuplicateDetector.
+                // Se corrige para usar 'findFuzzyDuplicates' que sí existe.
+                fuzzyResult = fuzzyDetector.findFuzzyDuplicates(job.payload);
+                if (fuzzyResult.hasDuplicates && fuzzyResult.matches.length > 0 && fuzzyResult.matches[0].confidence > 0.7) {
+                    const topMatch = fuzzyResult.matches[0];
+                    const confidencePercent = Math.round(topMatch.confidence * 100);
+                    finalStatus = `REVISAR DUPLICADO (DIFUSO ${confidencePercent}%)`;
+                    if (topMatch.id) {
+                        finalStatus += `: ID ${topMatch.id}`;
+                    }
+                    console.log(`⚠️ Duplicado difuso detectado: ${confidencePercent}% confianza`);
+                } else {
+                    console.log(`✅ No se detectaron duplicados difusos`);
+                }
+            } catch (fuzzyError) {
+                console.warn(`⚠️ Error en verificación difusa: ${fuzzyError.message}`);
+            }
+        }
+
+        // 3. Actualizar registro en la hoja
+        console.log(`📝 Actualizando registro en fila ${job.rowNum}...`);
+        const updateResult = updateJobResult(job.rowNum, {
+            hierarchy: hierarchy,
+            status: finalStatus,
+            fuzzyResult: fuzzyResult,
+            processed: true
+        });
+        if (!updateResult.success) {
+            throw new Error(`Error actualizando hoja: ${updateResult.error}`);
+        }
+
+        // 4. Invalidar caché de índice exacto para próximas búsquedas
+        FastPathCore.invalidateExactIndex();
+        const duration = Date.now() - startTime;
+        console.log(`⚡ Trabajo procesado en ${duration}ms`);
+        return {
+            success: true,
+            duration: duration,
+            hierarchy: hierarchy,
+            finalStatus: finalStatus,
+            fuzzyResult: fuzzyResult
+        };
+    } catch (error) {
+        const duration = Date.now() - startTime;
+        console.error(`❌ Error procesando trabajo individual:`, error);
+        return {
+            success: false,
+            error: error.message,
+            duration: duration
+        };
     }
-    
-    // 3. Actualizar registro en la hoja
-    console.log(`📝 Actualizando registro en fila ${job.rowNum}...`);
-    const updateResult = updateJobResult(job.rowNum, {
-      hierarchy: hierarchy,
-      status: finalStatus,
-      fuzzyResult: fuzzyResult,
-      processed: true
-    });
-    
-    if (!updateResult.success) {
-      throw new Error(`Error actualizando hoja: ${updateResult.error}`);
-    }
-    
-    // 4. Invalidar caché de índice exacto para próximas búsquedas
-    FastPathCore.invalidateExactIndex();
-    
-    const duration = Date.now() - startTime;
-    console.log(`⚡ Trabajo procesado en ${duration}ms`);
-    
-    return {
-      success: true,
-      duration: duration,
-      hierarchy: hierarchy,
-      finalStatus: finalStatus,
-      fuzzyResult: fuzzyResult
-    };
-    
-  } catch (error) {
-    const duration = Date.now() - startTime;
-    console.error(`❌ Error procesando trabajo individual:`, error);
-    
-    return {
-      success: false,
-      error: error.message,
-      duration: duration
-    };
-  }
 }
 
 /**

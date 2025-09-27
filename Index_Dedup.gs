@@ -1,7 +1,7 @@
 /**
  * SISTEMA DE REGISTRO DE ALMAS v2.0
  * Módulo de Índice de Deduplicación
- * @version 2.1.0
+ * @version 2.1.1 - CORRECCIÓN DE CACHÉ
  */
 
 // =================================================================
@@ -13,7 +13,7 @@ const INDEX_CONFIG = {
   ROW_COLUMN: 2,
   TIMESTAMP_COLUMN: 3,
   CACHE_KEY_PREFIX: "dedupIndex.v2.",
-  CACHE_TTL_SECONDS: 1800 // 30 minutos, igual que TTL_LIDERES
+  CACHE_TTL_SECONDS: 1800 // 30 minutos
 };
 
 // =================================================================
@@ -23,7 +23,6 @@ const INDEX_CONFIG = {
 class DedupIndexService {
   /**
    * Genera una clave única y normalizada para un registro.
-   * La clave se basa en el teléfono y el nombre completo.
    * @param {object} data - Contiene almaNombres, almaApellidos, almaTelefono.
    * @returns {string} - Una clave hash corta y única.
    */
@@ -37,10 +36,8 @@ class DedupIndexService {
     const normalizedName = Utils.normalizeString(`${data.almaNombres} ${data.almaApellidos}`);
     
     const rawKey = `${normalizedPhone}|${normalizedName}`;
-    
-    // Usamos SHA-256 para un hash robusto y lo codificamos en base64 para hacerlo URL-safe y más corto.
     const hashBytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, rawKey);
-    return Utilities.base64Encode(hashBytes).substring(0, 22); // Acortamos para eficiencia
+    return Utilities.base64Encode(hashBytes).substring(0, 22);
   }
 
   /**
@@ -53,25 +50,32 @@ class DedupIndexService {
     
     const cached = cache.get(cacheKey);
     if (cached) {
-      // Descomprimir los datos de la caché
-      const unzipped = Utilities.ungzip(Utilities.base64Decode(cached));
-      const jsonString = unzipped.getDataAsString();
-      return new Set(JSON.parse(jsonString));
+      try {
+        // --- CORRECCIÓN ROBUSTA PARA DESCOMPRESIÓN ---
+        const decodedBytes = Utilities.base64Decode(cached);
+        const blob = Utilities.newBlob(decodedBytes, 'application/gzip', 'index.gz');
+        const unzipped = Utilities.ungzip(blob);
+        const jsonString = unzipped.getDataAsString(Utilities.Charset.UTF_8);
+        return new Set(JSON.parse(jsonString));
+      } catch(e) {
+        console.warn(`Error al procesar la caché del índice: ${e.message}. Se reconstruirá desde la hoja.`);
+        // Si la caché está corrupta, la invalidamos y la reconstruimos.
+        this.invalidateIndexCache();
+        return this.buildIndexKeySetFromSheet();
+      }
     }
 
-    // Si no está en caché, lo construimos desde la hoja
+    // Si no está en caché, lo construimos desde la hoja.
     return this.buildIndexKeySetFromSheet();
   }
   
   /**
    * Construye el conjunto de claves directamente desde la hoja de cálculo 'Index_Dedup'.
-   * Este método es más lento y solo se debe llamar cuando la caché está fría.
    * @returns {Set<string>} - Un Set con todas las claves.
    */
   static buildIndexKeySetFromSheet() {
     const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
     let sheet = ss.getSheetByName(INDEX_CONFIG.SHEET_NAME);
-
     if (!sheet) {
       console.warn(`La hoja '${INDEX_CONFIG.SHEET_NAME}' no existe. Creándola...`);
       sheet = ss.insertSheet(INDEX_CONFIG.SHEET_NAME);
@@ -87,20 +91,19 @@ class DedupIndexService {
 
     const keys = sheet.getRange(2, INDEX_CONFIG.KEY_COLUMN, lastRow - 1, 1).getValues()
       .flat()
-      .filter(key => key); // Filtramos por si hay celdas vacías
+      .filter(key => key);
 
     const keySet = new Set(keys);
     
-    // Guardar la nueva versión en caché (comprimida)
+    // --- CORRECCIÓN ROBUSTA PARA COMPRESIÓN ---
     const jsonString = JSON.stringify(Array.from(keySet));
-    const blob = Utilities.newBlob(jsonString, 'application/json');
+    const blob = Utilities.newBlob(jsonString, 'application/json', 'index.json');
     const gzippedBlob = Utilities.gzip(blob);
     const payload = Utilities.base64Encode(gzippedBlob.getBytes());
     
     const cache = CacheService.getScriptCache();
     const cacheKey = `${INDEX_CONFIG.CACHE_KEY_PREFIX}full_set`;
-    
-    // Verificamos si el payload no excede el límite
+
     if (payload.length < 100 * 1024) { // Límite de 100KB de Google Cache
         cache.put(cacheKey, payload, INDEX_CONFIG.CACHE_TTL_SECONDS);
     } else {
@@ -118,14 +121,12 @@ class DedupIndexService {
   static appendToIndexSheet(key, rowNum) {
     const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
     const sheet = ss.getSheetByName(INDEX_CONFIG.SHEET_NAME);
-    
     if (!sheet) {
       console.error(`No se pudo añadir al índice. La hoja '${INDEX_CONFIG.SHEET_NAME}' no existe.`);
       return;
     }
     
     sheet.appendRow([key, rowNum, new Date()]);
-
     // Invalidar la caché para que la próxima lectura la reconstruya
     this.invalidateIndexCache();
   }
@@ -153,7 +154,7 @@ function warmDedupIndexCache() {
   try {
     console.log("🔥 Calentando caché del índice de duplicados...");
     // Simplemente llamando a esta función, forzamos la construcción y el cacheo si no existe.
-    DedupIndexService.getIndexKeySet(); 
+    DedupIndexService.getIndexKeySet();
     console.log("✅ Caché del índice de duplicados calentada.");
   } catch (error) {
     console.error("Error al calentar la caché del índice de duplicados:", error);
