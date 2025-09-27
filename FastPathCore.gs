@@ -196,29 +196,35 @@ class FastPathCore {
    */
   static ensureDispatcher() {
     try {
-      const props = PropertiesService.getScriptProperties();
-      const lastTrigger = props.getProperty('DISPATCHER_TRIGGER_V3');
-      const now = Date.now();
+      // Verificar si ya existe un trigger activo para dispatcher_v3
+      const existingTriggers = ScriptApp.getProjectTriggers();
+      const activeDispatcherTrigger = existingTriggers.find(trigger => 
+        trigger.getHandlerFunction() === 'dispatcher_v3'
+      );
       
-      // Solo crear trigger si no hay uno reciente (últimos 5 minutos)
-      if (!lastTrigger || (now - parseInt(lastTrigger)) > 300000) {
-        
-        // Limpiar triggers antiguos del dispatcher primero
-        this.cleanupOldDispatcherTriggers();
-        
-        // Crear nuevo trigger para ejecutarse en 30 segundos
-        const trigger = ScriptApp.newTrigger('dispatcher_v3')
-          .timeBased()
-          .after(30000) // 30 segundos
-          .create();
-        
-        props.setProperty('DISPATCHER_TRIGGER_V3', now.toString());
-        props.setProperty('DISPATCHER_TRIGGER_ID_V3', trigger.getUniqueId());
-        
-        console.log(`⏰ Dispatcher programado: ${trigger.getUniqueId()}`);
-      } else {
-        console.log('⏰ Dispatcher ya está programado');
+      if (activeDispatcherTrigger) {
+        console.log('⏰ Dispatcher ya está programado (trigger activo encontrado)');
+        return;
       }
+      
+      // No hay trigger activo, crear uno nuevo
+      console.log('🔄 No se encontró trigger activo, creando nuevo dispatcher...');
+      
+      // Limpiar triggers antiguos del dispatcher primero
+      this.cleanupOldDispatcherTriggers();
+      
+      // Crear nuevo trigger para ejecutarse en 30 segundos
+      const trigger = ScriptApp.newTrigger('dispatcher_v3')
+        .timeBased()
+        .after(30000) // 30 segundos
+        .create();
+      
+      const props = PropertiesService.getScriptProperties();
+      const now = Date.now();
+      props.setProperty('DISPATCHER_TRIGGER_V3', now.toString());
+      props.setProperty('DISPATCHER_TRIGGER_ID_V3', trigger.getUniqueId());
+      
+      console.log(`⏰ Dispatcher programado: ${trigger.getUniqueId()}`);
       
     } catch (error) {
       console.warn('⚠️ Error programando dispatcher:', error.message);

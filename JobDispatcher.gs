@@ -33,9 +33,22 @@ function dispatcher_v3() {
     // Programar siguiente ejecución si hay más trabajos
     if (stats.remainingJobs > 0) {
       console.log(`⏰ ${stats.remainingJobs} trabajos restantes, reprogramando dispatcher`);
+      
+      // Limpiar propiedades de trigger antes de reprogramar para evitar bloqueos
+      const props = PropertiesService.getScriptProperties();
+      props.deleteProperty('DISPATCHER_TRIGGER_V3');
+      props.deleteProperty('DISPATCHER_TRIGGER_ID_V3');
+      console.log('🧹 Propiedades de trigger limpiadas antes de reprogramar');
+      
       FastPathCore.ensureDispatcher();
     } else {
       console.log('✅ Cola vacía, dispatcher en standby');
+      
+      // Limpiar propiedades cuando no hay más trabajos
+      const props = PropertiesService.getScriptProperties();
+      props.deleteProperty('DISPATCHER_TRIGGER_V3');
+      props.deleteProperty('DISPATCHER_TRIGGER_ID_V3');
+      console.log('🧹 Propiedades de trigger limpiadas (cola vacía)');
     }
     
   } catch (error) {
