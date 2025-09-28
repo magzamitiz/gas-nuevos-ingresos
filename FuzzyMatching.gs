@@ -326,14 +326,30 @@ class FuzzyDuplicateDetector {
         return [];
     }
 
-    // Leer los datos de las filas candidatas en una sola operación
+    // Leer solo las filas candidatas específicas (OPTIMIZACIÓN CRÍTICA)
     const candidates = [];
-    const fullRange = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn());
-    const sheetValues = fullRange.getValues(); // Una sola llamada a getValues()
-
-    uniqueRows.forEach(rowNum => {
-        // Obtenemos los valores de la fila específica desde el array en memoria
-        const rowData = sheetValues[rowNum - 1];
+    
+    // Agrupar filas candidatas en lotes para lectura eficiente
+    const candidateBatches = [];
+    const batchSize = 100; // Leer máximo 100 filas por vez
+    
+    for (let i = 0; i < uniqueRows.length; i += batchSize) {
+      const batch = uniqueRows.slice(i, i + batchSize);
+      candidateBatches.push(batch);
+    }
+    
+    console.log(`📊 Leyendo ${uniqueRows.length} filas candidatas en ${candidateBatches.length} lotes...`);
+    
+    candidateBatches.forEach((batch, batchIndex) => {
+      // Leer solo las filas del lote actual
+      const minRow = Math.min(...batch);
+      const maxRow = Math.max(...batch);
+      const batchRange = sheet.getRange(minRow, 1, maxRow - minRow + 1, sheet.getLastColumn());
+      const batchValues = batchRange.getValues();
+      
+      batch.forEach(rowNum => {
+        const localRowIndex = rowNum - minRow;
+        const rowData = batchValues[localRowIndex];
         const record = {
             id: rowData[headers.indexOf('ID_Alma')],
             nombres: rowData[headers.indexOf('Nombres del Alma')],
@@ -343,6 +359,7 @@ class FuzzyDuplicateDetector {
         };
         record.nombreCompleto = `${record.nombres} ${record.apellidos}`;
         candidates.push(record);
+      });
     });
 
     const duration = Date.now() - startTime;
