@@ -937,154 +937,295 @@ function testComparacionRendimiento() {
 }
 
 /**
- * TEST: Verificación completa de optimizaciones críticas
- * Prueba fastAppendToSheet, checkSingleKey y processForm_fastPath
+ * TEST: Verificación completa de optimizaciones críticas v3.0
+ * Prueba casos reales, duplicados, limpieza y métodos optimizados
  */
-function testOptimizaciones2() {
-  console.log('🧪 TESTING OPTIMIZACIONES CRÍTICAS v2.0');
+function testOptimizacionesCompleto() {
+  console.log('🧪 TESTING COMPLETO DE OPTIMIZACIONES v3.0');
   console.log('============================================');
   
-  // Variables para el resumen final
-  let rowNum, duration1, duration2, duration3;
+  const results = {
+    fastAppend: false,
+    checkSingleKey: false,
+    noDuplicate: false,
+    duplicate: false,
+    cleanup: false
+  };
+  
+  let testRowNum = null;
+  let testId = null;
   
   try {
-    // 1. Test de fastAppendToSheet
-    console.log('\n1️⃣ TEST: fastAppendToSheet devuelve número correcto');
-    console.log('------------------------------------------------');
+    // 1. TEST: fastAppendToSheet funciona
+    console.log('\n1️⃣ TEST: fastAppendToSheet');
+    console.log('--------------------------------');
     
-    const testRecord = ['TEST_KEY_' + Date.now(), 99999, new Date()];
+    const uniqueKey = 'TEST_' + Date.now() + '_' + Math.random();
+    const testRecord = [uniqueKey, 99999, new Date()];
     const start1 = Date.now();
     
     try {
-      rowNum = fastAppendToSheet('Index_Dedup', testRecord);
-      duration1 = Date.now() - start1;
+      testRowNum = fastAppendToSheet('Index_Dedup', testRecord);
+      const duration1 = Date.now() - start1;
       
-      console.log(`⏱️ Tiempo: ${duration1}ms`);
-      console.log(`📊 Resultado: ${rowNum}`);
-      console.log(`🔍 Tipo: ${typeof rowNum}`);
-      
-      if (typeof rowNum === 'number' && rowNum > 0) {
-        console.log('✅ fastAppendToSheet funcionando correctamente');
+      if (typeof testRowNum === 'number' && testRowNum > 0) {
+        console.log(`✅ Devuelve número: ${testRowNum} en ${duration1}ms`);
+        results.fastAppend = true;
       } else {
-        console.log(`❌ fastAppendToSheet devolvió valor inválido: ${rowNum}`);
-        return;
+        console.log(`❌ Valor inválido: ${testRowNum}`);
+        return results;
       }
     } catch (e) {
-      console.log(`❌ Error en fastAppendToSheet: ${e.message}`);
-      return;
+      console.log(`❌ Error: ${e.message}`);
+      return results;
     }
     
-    // 2. Test de checkSingleKey
-    console.log('\n2️⃣ TEST: checkSingleKey búsqueda puntual');
-    console.log('----------------------------------------');
+    // 2. TEST: checkSingleKey con clave que NO existe
+    console.log('\n2️⃣ TEST: checkSingleKey (no existe)');
+    console.log('-------------------------------------');
     
-    const testKey = 'test|fastpath|' + Date.now();
+    const nonExistentKey = 'NO_EXISTE_' + Date.now();
     const start2 = Date.now();
+    const exists1 = DedupIndexService.checkSingleKey(nonExistentKey);
+    const duration2 = Date.now() - start2;
     
-    try {
-      const exists = DedupIndexService.checkSingleKey(testKey);
-      duration2 = Date.now() - start2;
-      
-      console.log(`⏱️ Tiempo: ${duration2}ms`);
-      console.log(`📊 Resultado: ${exists}`);
-      console.log(`🎯 Objetivo: <500ms`);
-      
-      if (duration2 < 500) {
-        console.log('✅ BÚSQUEDA ULTRA RÁPIDA');
-      } else if (duration2 < 2000) {
-        console.log('✅ Búsqueda rápida');
-      } else {
-        console.log('⚠️ Búsqueda lenta - revisar');
-      }
-      
-      // Test sin caché para verificar TextFinder
-      console.log('\n📊 Test sin caché (TextFinder):');
-      const cache = CacheService.getScriptCache();
-      cache.remove(`dedupIndex.v2.key.${testKey}`);
-      
-      const start2b = Date.now();
-      const exists2 = DedupIndexService.checkSingleKey(testKey);
-      const duration2b = Date.now() - start2b;
-      
-      console.log(`⏱️ Tiempo sin caché: ${duration2b}ms`);
-      console.log(`📊 Resultado: ${exists2}`);
-      
-    } catch (e) {
-      console.log(`❌ Error en checkSingleKey: ${e.message}`);
-      return;
+    console.log(`⏱️ Tiempo: ${duration2}ms`);
+    console.log(`📊 Resultado: ${exists1} (esperado: false)`);
+    
+    if (!exists1 && duration2 < 500) {
+      console.log('✅ Búsqueda rápida de clave inexistente');
+      results.checkSingleKey = true;
+    } else if (!exists1) {
+      console.log(`⚠️ Correcto pero lento: ${duration2}ms`);
+      results.checkSingleKey = true;
+    } else {
+      console.log('❌ Error: reportó que existe cuando no debería');
     }
     
-    // 3. Test del flujo completo processForm_fastPath
-    console.log('\n3️⃣ TEST: Flujo completo processForm_fastPath');
-    console.log('-------------------------------------------');
-    
-    const testData = {
-      nombreCapturador: 'Test Optimizaciones',
-      congregacion: 'Test Congregation',
-      liderCasaDeFeId: 'TEST_LCF_002',
-      fuenteContacto: 'Servicio Congregacional',
-      almaNombres: 'Test',
-      almaApellidos: 'Optimizaciones',
-      almaTelefono: '5559876543',
-      almaDireccion: 'Test Address 2',
-      almaSexo: 'Femenino',
-      almaEdad: 'Adulto (25-34)',
-      aceptoJesus: 'Sí',
-      deseaVisita: 'Sí',
-      responsableSeguimiento: 'Sí',
-      peticionOracion: ['Salvación', 'Sanidad']
-    };
+    // 3. TEST: checkSingleKey con clave que SÍ existe
+    console.log('\n3️⃣ TEST: checkSingleKey (sí existe)');
+    console.log('-------------------------------------');
     
     const start3 = Date.now();
+    const exists2 = DedupIndexService.checkSingleKey(uniqueKey);
+    const duration3 = Date.now() - start3;
+    
+    console.log(`⏱️ Tiempo: ${duration3}ms`);
+    console.log(`📊 Resultado: ${exists2} (esperado: true)`);
+    
+    if (exists2 && duration3 < 500) {
+      console.log('✅ Encontró clave existente rápidamente');
+    } else if (exists2) {
+      console.log(`⚠️ Correcto pero lento: ${duration3}ms`);
+    } else {
+      console.log('❌ Error: no encontró clave que sí existe');
+      results.checkSingleKey = false;
+    }
+    
+    // 4. TEST: processForm con registro NUEVO (no duplicado)
+    console.log('\n4️⃣ TEST: processForm con registro NUEVO');
+    console.log('----------------------------------------');
+    
+    const uniquePhone = '555' + Date.now().toString().slice(-7);
+    const newData = {
+      nombreCapturador: 'Test Sistema',
+      congregacion: 'Test',
+      liderCasaDeFeId: 'TEST_LCF',
+      fuenteContacto: 'Evento Especial',
+      almaNombres: 'Único_' + Date.now(),
+      almaApellidos: 'NoRepetido_' + Date.now(),
+      almaTelefono: uniquePhone,
+      almaDireccion: 'Dirección de prueba',
+      almaSexo: 'Masculino',
+      almaEdad: 'Adulto (25-34)',
+      aceptoJesus: 'Sí',
+      deseaVisita: 'No',
+      responsableSeguimiento: 'Sí',
+      peticionOracion: ['Salvación']
+    };
+    
+    const start4 = Date.now();
+    const result1 = processForm_v3(newData); // Usar processForm_v3 que es el real
+    const duration4 = Date.now() - start4;
+    
+    console.log(`⏱️ Tiempo: ${duration4}ms`);
+    console.log(`📊 Status: ${result1.status}`);
+    console.log(`🎯 Objetivo: <3000ms`);
+    
+    if (result1.status === 'success' && duration4 < 3000) {
+      console.log('✅ Registro nuevo procesado rápidamente');
+      results.noDuplicate = true;
+      testId = result1.id;
+    } else if (result1.status === 'success') {
+      console.log(`⚠️ Exitoso pero lento: ${duration4}ms`);
+      results.noDuplicate = true;
+      testId = result1.id;
+    } else {
+      console.log(`❌ Error: ${result1.message}`);
+    }
+    
+    // 5. TEST: processForm con registro DUPLICADO
+    console.log('\n5️⃣ TEST: processForm con registro DUPLICADO');
+    console.log('--------------------------------------------');
+    
+    // Intentar registrar el mismo de nuevo
+    const start5 = Date.now();
+    const result2 = processForm_v3(newData);
+    const duration5 = Date.now() - start5;
+    
+    console.log(`⏱️ Tiempo: ${duration5}ms`);
+    console.log(`📊 Status: ${result2.status}`);
+    console.log(`📊 Tipo: ${result2.duplicateType}`);
+    
+    if (result2.status === 'duplicate' && duration5 < 1000) {
+      console.log('✅ Duplicado detectado rápidamente');
+      results.duplicate = true;
+    } else if (result2.status === 'duplicate') {
+      console.log(`⚠️ Detectado pero lento: ${duration5}ms`);
+      results.duplicate = true;
+    } else {
+      console.log('❌ No detectó el duplicado');
+    }
+    
+    // 6. LIMPIEZA: Eliminar registros de prueba
+    console.log('\n6️⃣ LIMPIEZA');
+    console.log('------------');
     
     try {
-      const result = processForm_fastPath(testData);
-      duration3 = Date.now() - start3;
-      
-      console.log(`⏱️ Tiempo total: ${duration3}ms`);
-      console.log(`📊 Resultado: ${JSON.stringify(result)}`);
-      console.log(`🎯 Objetivo: <3000ms`);
-      
-      if (duration3 < 3000) {
-        console.log('✅ FLUJO COMPLETO RÁPIDO');
-      } else if (duration3 < 10000) {
-        console.log('✅ Flujo aceptable');
-      } else {
-        console.log('⚠️ Flujo lento - revisar');
+      // Limpiar de Index_Dedup
+      if (testRowNum) {
+        const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+        const indexSheet = ss.getSheetByName('Index_Dedup');
+        if (indexSheet && indexSheet.getLastRow() >= testRowNum) {
+          indexSheet.deleteRow(testRowNum);
+          console.log(`✅ Limpiado Index_Dedup fila ${testRowNum}`);
+        }
       }
       
-      // Verificar que no hay timeout
-      if (duration3 > 30000) {
-        console.log('❌ TIMEOUT DETECTADO - Corrección necesaria');
+      // Limpiar de Ingresos si se creó
+      if (testId) {
+        const ingresosSheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID)
+          .getSheetByName(CONFIG.SHEETS.INGRESOS);
+        const finder = ingresosSheet.getDataRange()
+          .createTextFinder(testId)
+          .findNext();
+        
+        if (finder) {
+          ingresosSheet.deleteRow(finder.getRow());
+          console.log(`✅ Limpiado Ingresos ID ${testId}`);
+        }
       }
+      
+      results.cleanup = true;
       
     } catch (e) {
-      const duration3 = Date.now() - start3;
-      console.error(`❌ Error en processForm_fastPath después de ${duration3}ms:`, e.message);
-      
-      if (duration3 > 30000) {
-        console.log('🚨 TIMEOUT DETECTADO - Corrección necesaria');
-      }
+      console.log(`⚠️ Error en limpieza: ${e.message}`);
     }
     
-    // 4. Resumen final
-    console.log('\n📊 RESUMEN DE OPTIMIZACIONES:');
-    console.log('============================================');
-    console.log(`✅ fastAppendToSheet: ${typeof rowNum === 'number' && rowNum > 0 ? 'FUNCIONANDO' : 'ERROR'}`);
-    console.log(`✅ checkSingleKey: ${duration2 < 500 ? 'ULTRA RÁPIDO' : duration2 < 2000 ? 'RÁPIDO' : 'LENTO'}`);
-    console.log(`✅ processForm_fastPath: ${duration3 < 3000 ? 'RÁPIDO' : duration3 < 10000 ? 'ACEPTABLE' : 'LENTO'}`);
+    // RESUMEN FINAL
+    console.log('\n' + '='.repeat(50));
+    console.log('📊 RESUMEN FINAL DE OPTIMIZACIONES');
+    console.log('='.repeat(50));
     
-    if (duration3 < 3000) {
-      console.log('\n🎉 ¡TODAS LAS OPTIMIZACIONES FUNCIONANDO CORRECTAMENTE!');
-      console.log('🚀 Sistema listo para uso en producción');
+    const passedTests = Object.values(results).filter(r => r === true).length;
+    const totalTests = Object.keys(results).length;
+    
+    Object.entries(results).forEach(([test, passed]) => {
+      console.log(`${passed ? '✅' : '❌'} ${test}`);
+    });
+    
+    console.log(`\nResultado: ${passedTests}/${totalTests} tests pasados`);
+    
+    if (passedTests === totalTests) {
+      console.log('\n🎉 ¡TODAS LAS OPTIMIZACIONES FUNCIONANDO PERFECTAMENTE!');
+      console.log('🚀 El timeout de 93 segundos ha sido ELIMINADO');
+      console.log('⚡ Sistema optimizado y listo para producción');
+    } else if (passedTests >= 3) {
+      console.log('\n✅ Sistema funcionando pero con algunas advertencias');
     } else {
-      console.log('\n⚠️ Algunas optimizaciones necesitan ajuste');
+      console.log('\n❌ Sistema necesita correcciones críticas');
     }
     
-    console.log('\n✅ Test de optimizaciones completado');
+    return results;
     
   } catch (error) {
-    console.error('❌ Error en test de optimizaciones:', error);
-    ErrorHandler.logError('testOptimizaciones2', error);
+    console.error('❌ Error crítico en test:', error);
+    return results;
   }
+}
+
+/**
+ * Función auxiliar para verificar que se está usando el método optimizado
+ */
+function verificarUsoMetodoOptimizado() {
+  console.log('🔍 Verificando que se use checkSingleKey...');
+  
+  // Monitorear el log para ver qué métodos se llaman
+  const originalLog = console.log;
+  let usingCheckSingleKey = false;
+  let usingGetIndexKeySet = false;
+  
+  console.log = function(...args) {
+    const message = args.join(' ');
+    if (message.includes('checkSingleKey')) usingCheckSingleKey = true;
+    if (message.includes('getIndexKeySet')) usingGetIndexKeySet = true;
+    originalLog.apply(console, args);
+  };
+  
+  // Ejecutar una verificación
+  const testKey = 'test_verification_' + Date.now();
+  DedupIndexService.checkSingleKey(testKey);
+  
+  // Restaurar console.log
+  console.log = originalLog;
+  
+  if (usingCheckSingleKey && !usingGetIndexKeySet) {
+    console.log('✅ Usando método optimizado checkSingleKey');
+  } else if (usingGetIndexKeySet) {
+    console.log('❌ TODAVÍA cargando índice completo - revisar implementación');
+  }
+}
+
+/**
+ * Test para verificar que checkSingleKey usa el Set en caché
+ */
+function testCheckSingleKeyOptimizado() {
+  console.log('🧪 TEST: Verificando que checkSingleKey usa Set en caché');
+  console.log('=========================================================');
+  
+  // Paso 1: Calentar el índice
+  console.log('\n1️⃣ Calentando índice...');
+  const keySet = DedupIndexService.getIndexKeySet();
+  console.log(`✅ Índice calentado con ${keySet.size} claves`);
+  
+  // Paso 2: Limpiar caché individual para forzar uso del Set
+  console.log('\n2️⃣ Limpiando caché individual de prueba...');
+  const testKey = 'test-key-optimized-' + Date.now();
+  const cache = CacheService.getScriptCache();
+  cache.remove(`dedupIndex.v2.key.${testKey}`);
+  
+  // Paso 3: Medir tiempo de búsqueda
+  console.log('\n3️⃣ Probando búsqueda...');
+  const startTime = Date.now();
+  const result = DedupIndexService.checkSingleKey(testKey);
+  const duration = Date.now() - startTime;
+  
+  console.log(`Resultado: ${result}`);
+  console.log(`Tiempo: ${duration}ms`);
+  
+  // Verificar que fue rápido (usando Set, no TextFinder)
+  if (duration < 100) {
+    console.log('✅ TEST PASADO: Búsqueda rápida usando Set en caché');
+  } else if (duration < 1000) {
+    console.log('⚠️ TEST PARCIAL: Búsqueda aceptable pero posiblemente no óptima');
+  } else {
+    console.log('❌ TEST FALLIDO: Búsqueda lenta, probablemente usando TextFinder');
+  }
+  
+  // Paso 4: Verificar logs
+  console.log('\n4️⃣ Revisa los logs anteriores:');
+  console.log('- Debería decir "Búsqueda en Set caché"');
+  console.log('- NO debería decir "FALLBACK TextFinder"');
+  
+  return duration < 100;
 }

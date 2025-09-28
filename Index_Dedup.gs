@@ -179,7 +179,8 @@ class DedupIndexService {
   }
 
   /**
-   * Verifica si una clave específica existe SIN cargar todo el índice
+   * VERSIÓN CORREGIDA: Verifica si una clave específica existe
+   * Usa el Set de claves en caché antes de TextFinder
    * @param {string} searchKey - Clave a buscar
    * @returns {boolean} - true si la clave existe
    */
@@ -190,7 +191,7 @@ class DedupIndexService {
     const cache = CacheService.getScriptCache();
     const cacheKey = `dedupIndex.v2.key.${searchKey}`;
     
-    // 1. Verificar caché individual de la clave
+    // 1. PRIMERO: Verificar caché individual de la clave
     const cached = cache.get(cacheKey);
     if (cached !== null) {
       const exists = cached === 'true';
@@ -198,46 +199,52 @@ class DedupIndexService {
       return exists;
     }
     
-    // 2. Si no está en caché, buscar con TextFinder (búsqueda puntual)
+    // 2. SEGUNDO: Usar el Set de claves que YA está en caché
     try {
-      const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-      const sheet = ss.getSheetByName(INDEX_CONFIG.SHEET_NAME);
+      // getIndexKeySet() ya maneja su propia caché y devuelve un Set
+      const keySet = this.getIndexKeySet();
+      const exists = keySet.has(searchKey);
       
-      if (!sheet || sheet.getLastRow() < 2) {
-        cache.put(cacheKey, 'false', 300); // Cachear que no existe
-        console.log(`⚡ Clave no existe (hoja vacía) - ${Date.now() - startTime}ms`);
-        return false;
-      }
-      
-      // Usar TextFinder para buscar SOLO esta clave en la columna 1
-      // Verificar que hay datos en la hoja
-      const lastRow = sheet.getLastRow();
-      if (lastRow < 2) {
-        cache.put(cacheKey, 'false', 300);
-        console.log(`⚡ Clave no existe (hoja vacía) - ${Date.now() - startTime}ms`);
-        return false;
-      }
-      
-      const finder = sheet.getRange(2, 1, lastRow - 1, 1)
-        .createTextFinder(searchKey)
-        .matchEntireCell(true)
-        .findNext();
-      
-      const exists = finder !== null;
-      
-      // Cachear el resultado individual por 5 minutos (300 segundos)
+      // Cachear el resultado individual para próximas consultas
       cache.put(cacheKey, exists.toString(), 300);
       
-      console.log(`⚡ Búsqueda puntual: ${searchKey} = ${exists} (${Date.now() - startTime}ms)`);
+      console.log(`⚡ Búsqueda en Set caché: ${searchKey} = ${exists} (${Date.now() - startTime}ms)`);
       return exists;
       
     } catch (error) {
-      console.error(`Error en checkSingleKey: ${error.message}`);
-      // NO usar fallback lento - retornar false para no bloquear el sistema
-      console.log(`⚠️ TextFinder falló para ${searchKey}, asumiendo que no existe`);
-      // Cachear como no existe para evitar reintentos
-      cache.put(cacheKey, 'false', 60); // Cache por 1 minuto
-      return false;
+      console.warn(`⚠️ Error obteniendo Set de claves: ${error.message}`);
+      
+      // 3. ÚLTIMO RECURSO: TextFinder solo si todo lo demás falla
+      try {
+        const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+        const sheet = ss.getSheetByName(INDEX_CONFIG.SHEET_NAME);
+        
+        if (!sheet || sheet.getLastRow() < 2) {
+          cache.put(cacheKey, 'false', 300);
+          console.log(`⚡ Hoja vacía - ${Date.now() - startTime}ms`);
+          return false;
+        }
+        
+        // TextFinder SOLO como fallback de emergencia
+        const finder = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1)
+          .createTextFinder(searchKey)
+          .matchEntireCell(true)
+          .findNext();
+        
+        const exists = finder !== null;
+        
+        // Cachear resultado
+        cache.put(cacheKey, exists.toString(), 300);
+        
+        console.log(`⚠️ FALLBACK TextFinder usado: ${searchKey} = ${exists} (${Date.now() - startTime}ms)`);
+        return exists;
+        
+      } catch (fallbackError) {
+        console.error(`❌ Error en fallback TextFinder: ${fallbackError.message}`);
+        // Asumir que no existe para no bloquear
+        cache.put(cacheKey, 'false', 60);
+        return false;
+      }
     }
   }
 }
