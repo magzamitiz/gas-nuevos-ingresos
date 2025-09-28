@@ -122,30 +122,43 @@ class DedupIndexService {
     try {
       // Usar fastAppendToSheet para mantener el flujo optimizado
       const record = [key, rowNum, new Date()];
-      const result = fastAppendToSheet(INDEX_CONFIG.SHEET_NAME, record);
       
-      if (result.success) {
-        console.log(`✅ Índice actualizado rápidamente: ${key} -> fila ${rowNum}`);
-        // Invalidar la caché para que la próxima lectura la reconstruya
+      // CORRECCIÓN: fastAppendToSheet devuelve el NÚMERO de fila, no un objeto
+      const newRowNum = fastAppendToSheet(INDEX_CONFIG.SHEET_NAME, record);
+      
+      // Si devuelve un número válido, fue exitoso
+      if (newRowNum && typeof newRowNum === 'number' && newRowNum > 0) {
+        console.log(`✅ Índice actualizado rápidamente: ${key} -> fila ${newRowNum}`);
+        // Invalidar caché del índice completo
         this.invalidateIndexCache();
+        // Invalidar caché de la clave individual
+        const cache = CacheService.getScriptCache();
+        cache.remove(`dedupIndex.v2.key.${key}`);
+        return;
       } else {
-        throw new Error(result.error || 'Error desconocido en fastAppendToSheet');
+        throw new Error(`fastAppendToSheet devolvió valor inválido: ${newRowNum}`);
       }
       
     } catch (error) {
-      console.warn(`⚠️ Fallback a SpreadsheetApp para índice: ${error.message}`);
+      console.warn(`⚠️ Fallback a appendRow: ${error.message}`);
       
-      // Ruta de contingencia ligera usando SpreadsheetApp
+      // Plan de contingencia con appendRow
       try {
         const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
         const sheet = ss.getSheetByName(INDEX_CONFIG.SHEET_NAME);
+        
         if (!sheet) {
-          console.error(`No se pudo añadir al índice. La hoja '${INDEX_CONFIG.SHEET_NAME}' no existe.`);
+          console.error(`Hoja '${INDEX_CONFIG.SHEET_NAME}' no existe`);
           return;
         }
         
         sheet.appendRow([key, rowNum, new Date()]);
         this.invalidateIndexCache();
+        
+        // Invalidar caché de la clave individual
+        const cache = CacheService.getScriptCache();
+        cache.remove(`dedupIndex.v2.key.${key}`);
+        
         console.log(`✅ Índice actualizado con fallback: ${key} -> fila ${rowNum}`);
         
       } catch (fallbackError) {
@@ -163,6 +176,69 @@ class DedupIndexService {
     const cacheKey = `${INDEX_CONFIG.CACHE_KEY_PREFIX}full_set`;
     cache.remove(cacheKey);
     console.log("Caché del índice de duplicados invalidada.");
+  }
+
+  /**
+   * Verifica si una clave específica existe SIN cargar todo el índice
+   * @param {string} searchKey - Clave a buscar
+   * @returns {boolean} - true si la clave existe
+   */
+  static checkSingleKey(searchKey) {
+    if (!searchKey) return false;
+    
+    const startTime = Date.now();
+    const cache = CacheService.getScriptCache();
+    const cacheKey = `dedupIndex.v2.key.${searchKey}`;
+    
+    // 1. Verificar caché individual de la clave
+    const cached = cache.get(cacheKey);
+    if (cached !== null) {
+      const exists = cached === 'true';
+      console.log(`⚡ Cache hit individual: ${searchKey} = ${exists} (${Date.now() - startTime}ms)`);
+      return exists;
+    }
+    
+    // 2. Si no está en caché, buscar con TextFinder (búsqueda puntual)
+    try {
+      const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+      const sheet = ss.getSheetByName(INDEX_CONFIG.SHEET_NAME);
+      
+      if (!sheet || sheet.getLastRow() < 2) {
+        cache.put(cacheKey, 'false', 300); // Cachear que no existe
+        console.log(`⚡ Clave no existe (hoja vacía) - ${Date.now() - startTime}ms`);
+        return false;
+      }
+      
+      // Usar TextFinder para buscar SOLO esta clave en la columna 1
+      // Verificar que hay datos en la hoja
+      const lastRow = sheet.getLastRow();
+      if (lastRow < 2) {
+        cache.put(cacheKey, 'false', 300);
+        console.log(`⚡ Clave no existe (hoja vacía) - ${Date.now() - startTime}ms`);
+        return false;
+      }
+      
+      const finder = sheet.getRange(2, 1, lastRow - 1, 1)
+        .createTextFinder(searchKey)
+        .matchEntireCell(true)
+        .findNext();
+      
+      const exists = finder !== null;
+      
+      // Cachear el resultado individual por 5 minutos (300 segundos)
+      cache.put(cacheKey, exists.toString(), 300);
+      
+      console.log(`⚡ Búsqueda puntual: ${searchKey} = ${exists} (${Date.now() - startTime}ms)`);
+      return exists;
+      
+    } catch (error) {
+      console.error(`Error en checkSingleKey: ${error.message}`);
+      // NO usar fallback lento - retornar false para no bloquear el sistema
+      console.log(`⚠️ TextFinder falló para ${searchKey}, asumiendo que no existe`);
+      // Cachear como no existe para evitar reintentos
+      cache.put(cacheKey, 'false', 60); // Cache por 1 minuto
+      return false;
+    }
   }
 }
 

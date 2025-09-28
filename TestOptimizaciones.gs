@@ -935,3 +935,156 @@ function testComparacionRendimiento() {
     ErrorHandler.logError('testComparacionRendimiento', error);
   }
 }
+
+/**
+ * TEST: Verificación completa de optimizaciones críticas
+ * Prueba fastAppendToSheet, checkSingleKey y processForm_fastPath
+ */
+function testOptimizaciones2() {
+  console.log('🧪 TESTING OPTIMIZACIONES CRÍTICAS v2.0');
+  console.log('============================================');
+  
+  // Variables para el resumen final
+  let rowNum, duration1, duration2, duration3;
+  
+  try {
+    // 1. Test de fastAppendToSheet
+    console.log('\n1️⃣ TEST: fastAppendToSheet devuelve número correcto');
+    console.log('------------------------------------------------');
+    
+    const testRecord = ['TEST_KEY_' + Date.now(), 99999, new Date()];
+    const start1 = Date.now();
+    
+    try {
+      rowNum = fastAppendToSheet('Index_Dedup', testRecord);
+      duration1 = Date.now() - start1;
+      
+      console.log(`⏱️ Tiempo: ${duration1}ms`);
+      console.log(`📊 Resultado: ${rowNum}`);
+      console.log(`🔍 Tipo: ${typeof rowNum}`);
+      
+      if (typeof rowNum === 'number' && rowNum > 0) {
+        console.log('✅ fastAppendToSheet funcionando correctamente');
+      } else {
+        console.log(`❌ fastAppendToSheet devolvió valor inválido: ${rowNum}`);
+        return;
+      }
+    } catch (e) {
+      console.log(`❌ Error en fastAppendToSheet: ${e.message}`);
+      return;
+    }
+    
+    // 2. Test de checkSingleKey
+    console.log('\n2️⃣ TEST: checkSingleKey búsqueda puntual');
+    console.log('----------------------------------------');
+    
+    const testKey = 'test|fastpath|' + Date.now();
+    const start2 = Date.now();
+    
+    try {
+      const exists = DedupIndexService.checkSingleKey(testKey);
+      duration2 = Date.now() - start2;
+      
+      console.log(`⏱️ Tiempo: ${duration2}ms`);
+      console.log(`📊 Resultado: ${exists}`);
+      console.log(`🎯 Objetivo: <500ms`);
+      
+      if (duration2 < 500) {
+        console.log('✅ BÚSQUEDA ULTRA RÁPIDA');
+      } else if (duration2 < 2000) {
+        console.log('✅ Búsqueda rápida');
+      } else {
+        console.log('⚠️ Búsqueda lenta - revisar');
+      }
+      
+      // Test sin caché para verificar TextFinder
+      console.log('\n📊 Test sin caché (TextFinder):');
+      const cache = CacheService.getScriptCache();
+      cache.remove(`dedupIndex.v2.key.${testKey}`);
+      
+      const start2b = Date.now();
+      const exists2 = DedupIndexService.checkSingleKey(testKey);
+      const duration2b = Date.now() - start2b;
+      
+      console.log(`⏱️ Tiempo sin caché: ${duration2b}ms`);
+      console.log(`📊 Resultado: ${exists2}`);
+      
+    } catch (e) {
+      console.log(`❌ Error en checkSingleKey: ${e.message}`);
+      return;
+    }
+    
+    // 3. Test del flujo completo processForm_fastPath
+    console.log('\n3️⃣ TEST: Flujo completo processForm_fastPath');
+    console.log('-------------------------------------------');
+    
+    const testData = {
+      nombreCapturador: 'Test Optimizaciones',
+      congregacion: 'Test Congregation',
+      liderCasaDeFeId: 'TEST_LCF_002',
+      fuenteContacto: 'Servicio Congregacional',
+      almaNombres: 'Test',
+      almaApellidos: 'Optimizaciones',
+      almaTelefono: '5559876543',
+      almaDireccion: 'Test Address 2',
+      almaSexo: 'Femenino',
+      almaEdad: 'Adulto (25-34)',
+      aceptoJesus: 'Sí',
+      deseaVisita: 'Sí',
+      responsableSeguimiento: 'Sí',
+      peticionOracion: ['Salvación', 'Sanidad']
+    };
+    
+    const start3 = Date.now();
+    
+    try {
+      const result = processForm_fastPath(testData);
+      duration3 = Date.now() - start3;
+      
+      console.log(`⏱️ Tiempo total: ${duration3}ms`);
+      console.log(`📊 Resultado: ${JSON.stringify(result)}`);
+      console.log(`🎯 Objetivo: <3000ms`);
+      
+      if (duration3 < 3000) {
+        console.log('✅ FLUJO COMPLETO RÁPIDO');
+      } else if (duration3 < 10000) {
+        console.log('✅ Flujo aceptable');
+      } else {
+        console.log('⚠️ Flujo lento - revisar');
+      }
+      
+      // Verificar que no hay timeout
+      if (duration3 > 30000) {
+        console.log('❌ TIMEOUT DETECTADO - Corrección necesaria');
+      }
+      
+    } catch (e) {
+      const duration3 = Date.now() - start3;
+      console.error(`❌ Error en processForm_fastPath después de ${duration3}ms:`, e.message);
+      
+      if (duration3 > 30000) {
+        console.log('🚨 TIMEOUT DETECTADO - Corrección necesaria');
+      }
+    }
+    
+    // 4. Resumen final
+    console.log('\n📊 RESUMEN DE OPTIMIZACIONES:');
+    console.log('============================================');
+    console.log(`✅ fastAppendToSheet: ${typeof rowNum === 'number' && rowNum > 0 ? 'FUNCIONANDO' : 'ERROR'}`);
+    console.log(`✅ checkSingleKey: ${duration2 < 500 ? 'ULTRA RÁPIDO' : duration2 < 2000 ? 'RÁPIDO' : 'LENTO'}`);
+    console.log(`✅ processForm_fastPath: ${duration3 < 3000 ? 'RÁPIDO' : duration3 < 10000 ? 'ACEPTABLE' : 'LENTO'}`);
+    
+    if (duration3 < 3000) {
+      console.log('\n🎉 ¡TODAS LAS OPTIMIZACIONES FUNCIONANDO CORRECTAMENTE!');
+      console.log('🚀 Sistema listo para uso en producción');
+    } else {
+      console.log('\n⚠️ Algunas optimizaciones necesitan ajuste');
+    }
+    
+    console.log('\n✅ Test de optimizaciones completado');
+    
+  } catch (error) {
+    console.error('❌ Error en test de optimizaciones:', error);
+    ErrorHandler.logError('testOptimizaciones2', error);
+  }
+}

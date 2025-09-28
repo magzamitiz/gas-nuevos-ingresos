@@ -32,8 +32,8 @@ function processForm_fastPath(formData) {
 
     // 2. DETECCIÓN SÍNCRONA DE DUPLICADOS (antes de guardar)
     const dedupKey = DedupIndexService.generateKey(sanitizedData);
-    const indexKeySet = DedupIndexService.getIndexKeySet();
-    const isExactDuplicate = dedupKey ? indexKeySet.has(dedupKey) : false;
+    // OPTIMIZACIÓN: Usar búsqueda puntual en lugar de cargar todo el índice
+    const isExactDuplicate = dedupKey ? DedupIndexService.checkSingleKey(dedupKey) : false;
     
     // 3. Si hay duplicado exacto, rechazar inmediatamente
     if (isExactDuplicate) {

@@ -64,31 +64,14 @@ class FastPathCore {
     const startTime = Date.now();
     
     try {
-      // Intentar obtener índice desde caché
-      const cache = CacheService.getScriptCache();
-      const cacheKey = `exact_index_v3_${CONFIG.CACHE.VERSION}`;
-      const indexData = cache.get(cacheKey);
+      // OPTIMIZACIÓN: Usar el nuevo método que NO carga todo el índice
+      const exists = DedupIndexService.checkSingleKey(searchKey);
       
-      if (indexData) {
-        const index = JSON.parse(indexData);
-        const exists = index.hasOwnProperty(searchKey);
-        console.log(`⚡ Quick exact check: ${exists ? 'DUPLICADO' : 'ÚNICO'} en ${Date.now() - startTime}ms`);
-        return exists;
-      }
-      
-      // Si no hay caché, construir índice rápido
-      console.log('🔄 Construyendo índice de duplicados...');
-      const quickIndex = this.buildQuickIndex();
-      
-      // Cachear por 5 minutos
-      cache.put(cacheKey, JSON.stringify(quickIndex), 300);
-      
-      const exists = quickIndex.hasOwnProperty(searchKey);
-      console.log(`⚡ Quick exact check (con build): ${exists ? 'DUPLICADO' : 'ÚNICO'} en ${Date.now() - startTime}ms`);
+      console.log(`⚡ Quick exact check: ${exists ? 'DUPLICADO' : 'ÚNICO'} en ${Date.now() - startTime}ms`);
       return exists;
       
     } catch (error) {
-      console.warn('⚠️ Error en quick exact check:', error.message);
+      console.warn(`⚠️ Error en quick exact check: ${error.message}`);
       return false; // No bloquear el proceso si falla
     }
   }
