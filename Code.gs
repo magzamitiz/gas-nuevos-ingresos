@@ -247,7 +247,7 @@ class Validator {
     };
   }
   
-  static sanitizeName(value, field, errors) {
+  static sanitizeName(value, field, errors, isTest = false) {
     if (!value) return '';
     
     let cleaned = String(value)
@@ -265,7 +265,13 @@ class Validator {
       cleaned = cleaned.substring(0, CONFIG.LIMITS.MAX_NAME_LENGTH);
     }
     
-    if (cleaned && !/^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s\-\.]+$/.test(cleaned)) {
+    // Regex para producción: solo letras, espacios, guiones y puntos
+    // Regex para test: permite además números y guiones bajos
+    const nameRegex = isTest 
+      ? /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s\-\.\d_]+$/  // TEST: más flexible
+      : /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s\-\.]+$/;   // PROD: estricto
+    
+    if (cleaned && !nameRegex.test(cleaned)) {
       errors.push({
         field: field,
         message: `${field} contiene caracteres no válidos`

@@ -16,6 +16,9 @@ const INDEX_CONFIG = {
   CACHE_TTL_SECONDS: 1800 // 30 minutos
 };
 
+// Constante global para Document Properties
+const CACHE_KEY = 'index_dedup_set_v4';
+
 // =================================================================
 // LÓGICA DE MANEJO DEL ÍNDICE
 // =================================================================
@@ -41,76 +44,130 @@ class DedupIndexService {
   }
 
   /**
-   * Obtiene el conjunto de todas las claves del índice, usando la caché si está disponible.
+   * NUEVA IMPLEMENTACIÓN: Obtiene el conjunto de todas las claves del índice
+   * Usa Document Properties en lugar de CacheService para evitar límite de 100KB
    * @returns {Set<string>} - Un Set con todas las claves de duplicados existentes.
    */
   static getIndexKeySet() {
-    const cache = CacheService.getScriptCache();
-    const cacheKey = `${INDEX_CONFIG.CACHE_KEY_PREFIX}full_set`;
+    const docProps = PropertiesService.getDocumentProperties();
     
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      try {
-        // --- CORRECCIÓN ROBUSTA PARA DESCOMPRESIÓN ---
-        const decodedBytes = Utilities.base64Decode(cached);
-        const blob = Utilities.newBlob(decodedBytes, 'application/gzip', 'index.gz');
-        const unzipped = Utilities.ungzip(blob);
-        const jsonString = unzipped.getDataAsString(Utilities.Charset.UTF_8);
-        return new Set(JSON.parse(jsonString));
-      } catch(e) {
-        console.warn(`Error al procesar la caché del índice: ${e.message}. Se reconstruirá desde la hoja.`);
-        // Si la caché está corrupta, la invalidamos y la reconstruimos.
-        this.invalidateIndexCache();
-        return this.buildIndexKeySetFromSheet();
+    try {
+      // Intentar cargar desde Document Properties (chunked)
+      const cachedChunks = [];
+      let chunkIndex = 0;
+      let chunk;
+      
+      // Leer chunks hasta encontrar null
+      while ((chunk = docProps.getProperty(`${CACHE_KEY}_${chunkIndex}`)) !== null) {
+        cachedChunks.push(chunk);
+        chunkIndex++;
       }
+      
+      if (cachedChunks.length > 0) {
+        const fullData = cachedChunks.join('');
+        const keysArray = JSON.parse(fullData);
+        console.log(`✅ Caché cargada: ${keysArray.length} keys desde Document Properties`);
+        return new Set(keysArray);
+      }
+    } catch (e) {
+      console.warn(`Error al procesar caché de Document Properties: ${e.message}. Se reconstruirá desde la hoja.`);
+      // Limpiar caché corrupta
+      this.cleanupDocumentPropertiesCache();
     }
-
-    // Si no está en caché, lo construimos desde la hoja.
-    return this.buildIndexKeySetFromSheet();
+    
+    // Si no está en caché, lo construimos desde la hoja
+    return this.buildAndCacheIndexSet();
   }
   
   /**
-   * Construye el conjunto de claves directamente desde la hoja de cálculo 'Index_Dedup'.
+   * NUEVA IMPLEMENTACIÓN: Construye el conjunto de claves desde la hoja Index_Dedup
+   * Usa procesamiento por batches y guarda en Document Properties por chunks
    * @returns {Set<string>} - Un Set con todas las claves.
    */
-  static buildIndexKeySetFromSheet() {
+  static buildAndCacheIndexSet() {
+    console.time('buildIndexSet');
+    
     const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
     let sheet = ss.getSheetByName(INDEX_CONFIG.SHEET_NAME);
+    
     if (!sheet) {
       console.warn(`La hoja '${INDEX_CONFIG.SHEET_NAME}' no existe. Creándola...`);
       sheet = ss.insertSheet(INDEX_CONFIG.SHEET_NAME);
       sheet.appendRow(['key', 'row_in_ingresos', 'updated_at']);
       sheet.hideSheet();
+      console.timeEnd('buildIndexSet');
       return new Set();
     }
     
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) {
+      console.timeEnd('buildIndexSet');
       return new Set();
     }
 
-    const keys = sheet.getRange(2, INDEX_CONFIG.KEY_COLUMN, lastRow - 1, 1).getValues()
-      .flat()
-      .filter(key => key);
-
-    const keySet = new Set(keys);
+    // Procesar en batches de 5000 filas para evitar timeout
+    const keySet = new Set();
+    const BATCH_SIZE = 5000;
     
-    // --- CORRECCIÓN ROBUSTA PARA COMPRESIÓN ---
-    const jsonString = JSON.stringify(Array.from(keySet));
-    const blob = Utilities.newBlob(jsonString, 'application/json', 'index.json');
-    const gzippedBlob = Utilities.gzip(blob);
-    const payload = Utilities.base64Encode(gzippedBlob.getBytes());
-    
-    const cache = CacheService.getScriptCache();
-    const cacheKey = `${INDEX_CONFIG.CACHE_KEY_PREFIX}full_set`;
-
-    if (payload.length < 100 * 1024) { // Límite de 100KB de Google Cache
-        cache.put(cacheKey, payload, INDEX_CONFIG.CACHE_TTL_SECONDS);
-    } else {
-        console.warn('El índice de duplicados es demasiado grande para la caché (>100KB). El rendimiento puede verse afectado.');
+    for (let startRow = 2; startRow <= lastRow; startRow += BATCH_SIZE) {
+      const endRow = Math.min(startRow + BATCH_SIZE - 1, lastRow);
+      const range = sheet.getRange(startRow, 1, endRow - startRow + 1, 1);
+      const values = range.getValues();
+      
+      values.forEach(row => {
+        if (row[0]) {
+          keySet.add(String(row[0]));
+        }
+      });
+      
+      console.log(`Procesado: ${endRow}/${lastRow} filas (${keySet.size} claves únicas)`);
     }
     
+    // Guardar en Document Properties por chunks de 50000 caracteres
+    try {
+      const docProps = PropertiesService.getDocumentProperties();
+      const keysArray = Array.from(keySet);
+      const jsonString = JSON.stringify(keysArray);
+      const CHUNK_SIZE = 50000;
+      
+      // Limpiar caché anterior
+      this.cleanupDocumentPropertiesCache();
+      
+      // Guardar en chunks
+      for (let i = 0; i < jsonString.length; i += CHUNK_SIZE) {
+        const chunk = jsonString.slice(i, i + CHUNK_SIZE);
+        const chunkIndex = i / CHUNK_SIZE;
+        docProps.setProperty(`${CACHE_KEY}_${chunkIndex}`, chunk);
+      }
+      
+      console.log(`✅ Caché guardada: ${keysArray.length} keys en ${Math.ceil(jsonString.length / CHUNK_SIZE)} chunks`);
+    } catch (e) {
+      console.warn(`No se pudo cachear en Document Properties: ${e.message}`);
+    }
+    
+    console.timeEnd('buildIndexSet');
     return keySet;
+  }
+
+  /**
+   * Limpia la caché antigua de Document Properties
+   */
+  static cleanupDocumentPropertiesCache() {
+    try {
+      const docProps = PropertiesService.getDocumentProperties();
+      
+      // Obtener todas las propiedades y limpiar las del caché
+      const allProps = docProps.getProperties();
+      Object.keys(allProps).forEach(key => {
+        if (key.startsWith(CACHE_KEY)) {
+          docProps.deleteProperty(key);
+        }
+      });
+      
+      console.log('🧹 Caché antigua de Document Properties limpiada');
+    } catch (e) {
+      console.warn(`Error limpiando caché antigua: ${e.message}`);
+    }
   }
 
   /**
@@ -169,18 +226,23 @@ class DedupIndexService {
   }
 
   /**
-   * Invalida la caché del índice de duplicados.
+   * Invalida la caché del índice de duplicados (tanto CacheService como Document Properties).
    */
   static invalidateIndexCache() {
+    // Limpiar caché antigua de CacheService
     const cache = CacheService.getScriptCache();
     const cacheKey = `${INDEX_CONFIG.CACHE_KEY_PREFIX}full_set`;
     cache.remove(cacheKey);
-    console.log("Caché del índice de duplicados invalidada.");
+    
+    // Limpiar caché nueva de Document Properties
+    this.cleanupDocumentPropertiesCache();
+    
+    console.log("🧹 Caché del índice de duplicados invalidada (CacheService + Document Properties).");
   }
 
   /**
-   * VERSIÓN CORREGIDA: Verifica si una clave específica existe
-   * Usa el Set de claves en caché antes de TextFinder
+   * VERSIÓN OPTIMIZADA: Verifica si una clave específica existe
+   * Usa el Set en memoria sin reconstruir innecesariamente
    * @param {string} searchKey - Clave a buscar
    * @returns {boolean} - true si la clave existe
    */
@@ -188,10 +250,10 @@ class DedupIndexService {
     if (!searchKey) return false;
     
     const startTime = Date.now();
-    const cache = CacheService.getScriptCache();
-    const cacheKey = `dedupIndex.v2.key.${searchKey}`;
     
     // 1. PRIMERO: Verificar caché individual de la clave
+    const cache = CacheService.getScriptCache();
+    const cacheKey = `dedupIndex.v2.key.${searchKey}`;
     const cached = cache.get(cacheKey);
     if (cached !== null) {
       const exists = cached === 'true';
@@ -199,10 +261,19 @@ class DedupIndexService {
       return exists;
     }
     
-    // 2. SEGUNDO: Usar el Set de claves que YA está en caché
+    // 2. SEGUNDO: Usar el Set de claves que YA está en memoria
     try {
-      // getIndexKeySet() ya maneja su propia caché y devuelve un Set
+      // Obtener el Set del caché (sin reconstruir si ya existe)
       const keySet = this.getIndexKeySet();
+      
+      // Si el Set está vacío o null, la clave no existe
+      if (!keySet || keySet.size === 0) {
+        console.log(`⚡ Set vacío: ${searchKey} = false (${Date.now() - startTime}ms)`);
+        cache.put(cacheKey, 'false', 300);
+        return false;
+      }
+      
+      // Búsqueda O(1) en el Set
       const exists = keySet.has(searchKey);
       
       // Cachear el resultado individual para próximas consultas
@@ -221,7 +292,7 @@ class DedupIndexService {
         
         if (!sheet || sheet.getLastRow() < 2) {
           cache.put(cacheKey, 'false', 300);
-          console.log(`⚡ Hoja vacía - ${Date.now() - startTime}ms`);
+          console.log(`⚡ Hoja vacía: ${searchKey} = false (${Date.now() - startTime}ms)`);
           return false;
         }
         
@@ -236,7 +307,7 @@ class DedupIndexService {
         // Cachear resultado
         cache.put(cacheKey, exists.toString(), 300);
         
-        console.log(`⚠️ FALLBACK TextFinder usado: ${searchKey} = ${exists} (${Date.now() - startTime}ms)`);
+        console.log(`⚠️ FALLBACK TextFinder: ${searchKey} = ${exists} (${Date.now() - startTime}ms)`);
         return exists;
         
       } catch (fallbackError) {

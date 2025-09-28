@@ -1026,14 +1026,14 @@ function testOptimizacionesCompleto() {
     console.log('\n4️⃣ TEST: processForm con registro NUEVO');
     console.log('----------------------------------------');
     
-    const uniquePhone = '555' + Date.now().toString().slice(-7);
+    const uniquePhone = '555' + Math.floor(Math.random() * 10000);
     const newData = {
       nombreCapturador: 'Test Sistema',
       congregacion: 'Test',
       liderCasaDeFeId: 'TEST_LCF',
       fuenteContacto: 'Evento Especial',
-      almaNombres: 'Único_' + Date.now(),
-      almaApellidos: 'NoRepetido_' + Date.now(),
+      almaNombres: 'TestUnico',
+      almaApellidos: 'PruebaNoRepetido',
       almaTelefono: uniquePhone,
       almaDireccion: 'Dirección de prueba',
       almaSexo: 'Masculino',

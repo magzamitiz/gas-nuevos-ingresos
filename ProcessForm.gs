@@ -24,19 +24,25 @@ function processForm_fastPath(formData) {
 
   try {
     // 1. Validar datos (rápido)
+    console.time('validacion');
     const validation = Validator.validateFormData(formData);
     if (!validation.valid) {
+      console.timeEnd('validacion');
       throw new ValidationError('Datos inválidos: ' + validation.errors.map(e => e.message).join(', '));
     }
     const sanitizedData = validation.sanitized;
+    console.timeEnd('validacion');
 
     // 2. DETECCIÓN SÍNCRONA DE DUPLICADOS (antes de guardar)
+    console.time('checkDuplicate');
     const dedupKey = DedupIndexService.generateKey(sanitizedData);
     // OPTIMIZACIÓN: Usar búsqueda puntual en lugar de cargar todo el índice
     const isExactDuplicate = dedupKey ? DedupIndexService.checkSingleKey(dedupKey) : false;
+    console.timeEnd('checkDuplicate');
     
     // 3. Si hay duplicado exacto, rechazar inmediatamente
     if (isExactDuplicate) {
+      console.timeEnd('processForm_v3_total');
       return {
         status: 'duplicate',
         message: 'Ya existe un registro con estos datos exactos (nombre y teléfono)',
@@ -45,14 +51,17 @@ function processForm_fastPath(formData) {
     }
     
     // 4. Verificación difusa SÍNCRONA (antes de guardar)
+    console.time('fuzzySearch');
     const fuzzyDetector = new FuzzyDuplicateDetector();
     const fuzzyResult = fuzzyDetector.findFuzzyDuplicates(sanitizedData);
+    console.timeEnd('fuzzySearch');
     
     // 5. Si hay duplicado difuso con alta confianza, rechazar
     if (fuzzyResult.hasDuplicates && fuzzyResult.matches.length > 0) {
       const topMatch = fuzzyResult.matches[0];
       if (topMatch.confidence > 0.8) { // Umbral alto para rechazo automático
         const confidencePercent = Math.round(topMatch.confidence * 100);
+        console.timeEnd('processForm_v3_total');
         return {
           status: 'duplicate',
           message: `Posible duplicado detectado (${confidencePercent}% de similitud). Por favor verifica los datos.`,
@@ -64,6 +73,7 @@ function processForm_fastPath(formData) {
     }
     
     // 6. Preparar y guardar registro (solo si NO es duplicado)
+    console.time('saveToSheet');
     const registrationService = new RegistrationService();
     const newId = registrationService.generateUniqueId();
     const searchKey = Utils.createSearchKey(
@@ -88,8 +98,10 @@ function processForm_fastPath(formData) {
     if (dedupKey) {
       DedupIndexService.appendToIndexSheet(dedupKey, newRowNum);
     }
+    console.timeEnd('saveToSheet');
 
     // 8. Responder al usuario con resultado inmediato
+    console.timeEnd('processForm_v3_total');
     return {
       status: 'success',
       id: newId,
@@ -98,6 +110,7 @@ function processForm_fastPath(formData) {
     };
 
   } catch (error) {
+    console.timeEnd('processForm_v3_total');
     ErrorHandler.logError('processForm_fastPath', error, { formData });
     // Devolvemos el error de una forma que el frontend pueda interpretar
     return { status: 'error', message: error.message, code: error.code || 500 };
@@ -231,6 +244,8 @@ function postSaveJobs() {
 }
 
 function processForm_v3(formData) {
+  console.log('=== INICIO processForm_v3 ===', new Date().toISOString());
+  console.time('processForm_v3_total');
   console.log('⚡ processForm_v3 redirigido a fast path');
   return processForm_fastPath(formData);
 }
