@@ -119,16 +119,40 @@ class DedupIndexService {
    * @param {number} rowNum - El número de fila donde se insertó el registro en la hoja 'Ingresos'.
    */
   static appendToIndexSheet(key, rowNum) {
-    const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-    const sheet = ss.getSheetByName(INDEX_CONFIG.SHEET_NAME);
-    if (!sheet) {
-      console.error(`No se pudo añadir al índice. La hoja '${INDEX_CONFIG.SHEET_NAME}' no existe.`);
-      return;
+    try {
+      // Usar fastAppendToSheet para mantener el flujo optimizado
+      const record = [key, rowNum, new Date()];
+      const result = fastAppendToSheet(INDEX_CONFIG.SHEET_NAME, record);
+      
+      if (result.success) {
+        console.log(`✅ Índice actualizado rápidamente: ${key} -> fila ${rowNum}`);
+        // Invalidar la caché para que la próxima lectura la reconstruya
+        this.invalidateIndexCache();
+      } else {
+        throw new Error(result.error || 'Error desconocido en fastAppendToSheet');
+      }
+      
+    } catch (error) {
+      console.warn(`⚠️ Fallback a SpreadsheetApp para índice: ${error.message}`);
+      
+      // Ruta de contingencia ligera usando SpreadsheetApp
+      try {
+        const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+        const sheet = ss.getSheetByName(INDEX_CONFIG.SHEET_NAME);
+        if (!sheet) {
+          console.error(`No se pudo añadir al índice. La hoja '${INDEX_CONFIG.SHEET_NAME}' no existe.`);
+          return;
+        }
+        
+        sheet.appendRow([key, rowNum, new Date()]);
+        this.invalidateIndexCache();
+        console.log(`✅ Índice actualizado con fallback: ${key} -> fila ${rowNum}`);
+        
+      } catch (fallbackError) {
+        console.error(`❌ Error crítico actualizando índice: ${fallbackError.message}`);
+        // No lanzar error para no bloquear el fast path
+      }
     }
-    
-    sheet.appendRow([key, rowNum, new Date()]);
-    // Invalidar la caché para que la próxima lectura la reconstruya
-    this.invalidateIndexCache();
   }
 
   /**

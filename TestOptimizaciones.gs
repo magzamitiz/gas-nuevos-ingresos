@@ -661,3 +661,277 @@ function benchmarkContinuo() {
   
   return results;
 }
+
+// =================================================================
+// TESTS DE FAST PATH OPTIMIZADO
+// =================================================================
+
+/**
+ * TEST: Validación del Fast Path Optimizado (Versión Simplificada)
+ * Verifica que el fast path mantenga velocidad sin timeouts
+ */
+function testFastPathOptimizado() {
+  console.log('🧪 TESTING FAST PATH OPTIMIZADO - SIN TIMEOUTS');
+  console.log('================================================');
+  
+  try {
+    // 1. Crear datos de prueba
+    console.log('\n1️⃣ Preparando datos de prueba...');
+    const testData = {
+      nombreCapturador: 'Test Fast Path',
+      congregacion: 'Test Congregation',
+      liderCasaDeFeId: 'TEST_LCF_001',
+      fuenteContacto: 'Servicio Congregacional',
+      almaNombres: 'Test',
+      almaApellidos: 'FastPath',
+      almaTelefono: '5551234567',
+      almaDireccion: 'Test Address',
+      almaSexo: 'Masculino',
+      almaEdad: 'Adulto (25-34)',
+      aceptoJesus: 'Sí',
+      deseaVisita: 'Sí',
+      responsableSeguimiento: 'Sí',
+      peticionOracion: ['Salvación']
+    };
+    
+    // 2. Medir tiempo de ejecución
+    console.log('\n2️⃣ Ejecutando processForm_v3...');
+    const startTime = Date.now();
+    
+    try {
+      const result = processForm_v3(testData);
+      const duration = Date.now() - startTime;
+      
+      console.log(`\n3️⃣ Resultado del test:`);
+      console.log(`⏱️ Tiempo total: ${duration}ms`);
+      console.log(`📊 Resultado: ${JSON.stringify(result)}`);
+      
+      // 4. Validar que no hubo timeouts
+      if (duration < 30000) { // Menos de 30 segundos
+        console.log('✅ TEST PASADO: Fast path sin timeouts');
+        console.log(`🎯 Tiempo: ${duration}ms (objetivo: <30s)`);
+      } else {
+        console.log('❌ TEST FALLIDO: Timeout detectado');
+        console.log(`⚠️ Tiempo: ${duration}ms (límite: 30s)`);
+      }
+      
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      console.error(`❌ Error en processForm_v3 después de ${duration}ms:`, error);
+      
+      // Verificar si es timeout
+      if (error.message && error.message.includes('tiempo de espera')) {
+        console.log('🚨 TIMEOUT DETECTADO - Corrección necesaria');
+      } else {
+        console.log('⚠️ Error diferente al timeout');
+      }
+    }
+    
+    // 5. Verificar estado del índice
+    console.log('\n4️⃣ Verificando estado del índice...');
+    try {
+      const indexKeySet = DedupIndexService.getIndexKeySet();
+      console.log(`✅ Índice de duplicados: ${indexKeySet.size} claves`);
+    } catch (error) {
+      console.log(`⚠️ Error verificando índice: ${error.message}`);
+    }
+    
+    console.log('\n✅ Test completado');
+    
+  } catch (error) {
+    console.error('❌ Error en test:', error);
+    ErrorHandler.logError('testFastPathOptimizado', error);
+  }
+}
+
+/**
+ * TEST: Validación rápida del Fast Path (Sin validación completa)
+ * Test más simple para evitar timeouts
+ */
+function testFastPathRapido() {
+  console.log('🧪 TESTING FAST PATH RÁPIDO - SIN VALIDACIÓN COMPLETA');
+  console.log('====================================================');
+  
+  try {
+    // 1. Crear datos de prueba mínimos
+    console.log('\n1️⃣ Preparando datos de prueba mínimos...');
+    const testData = {
+      nombreCapturador: 'Test Rápido',
+      congregacion: 'Test Congregation',
+      liderCasaDeFeId: 'TEST_LCF_001',
+      fuenteContacto: 'Servicio Congregacional',
+      almaNombres: 'Test',
+      almaApellidos: 'Rapido',
+      almaTelefono: '5551234567',
+      almaDireccion: 'Test Address',
+      almaSexo: 'Masculino',
+      almaEdad: 'Adulto (25-34)',
+      aceptoJesus: 'Sí',
+      deseaVisita: 'Sí',
+      responsableSeguimiento: 'Sí',
+      peticionOracion: ['Salvación']
+    };
+    
+    // 2. Medir solo el tiempo de guardado (sin validación completa)
+    console.log('\n2️⃣ Ejecutando solo el guardado rápido...');
+    const startTime = Date.now();
+    
+    try {
+      // Usar la función correcta para generar el record con estructura correcta
+      const registrationService = new RegistrationService();
+      const record = registrationService.prepareRecord('TEST-RAPIDO-' + Date.now(), testData, {}, {
+        initialState: 'OK',
+        initialRevision: 'OK',
+        placeholderValue: '',
+        searchKey: Utils.createSearchKey(testData.almaNombres, testData.almaApellidos)
+      });
+      
+      const rowNum = fastAppendToSheet(CONFIG.SHEETS.INGRESOS, record);
+      const duration = Date.now() - startTime;
+      
+      console.log(`\n3️⃣ Resultado del test rápido:`);
+      console.log(`⏱️ Tiempo de guardado: ${duration}ms`);
+      console.log(`📊 Fila insertada: ${rowNum}`);
+      
+      if (rowNum && rowNum > 0) {
+        console.log('✅ TEST PASADO: Guardado rápido exitoso');
+        console.log(`🎯 Tiempo: ${duration}ms (objetivo: <5s)`);
+        console.log(`📍 Registro guardado en fila: ${rowNum}`);
+        
+        if (duration < 5000) {
+          console.log('🚀 RENDIMIENTO EXCELENTE');
+        } else if (duration < 10000) {
+          console.log('✅ RENDIMIENTO BUENO');
+        } else {
+          console.log('⚠️ RENDIMIENTO ACEPTABLE');
+        }
+      } else {
+        console.log('❌ TEST FALLIDO: Error en guardado rápido');
+        console.log(`⚠️ Fila devuelta: ${rowNum}`);
+      }
+      
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      console.error(`❌ Error en guardado rápido después de ${duration}ms:`, error);
+    }
+    
+    console.log('\n✅ Test rápido completado');
+    
+  } catch (error) {
+    console.error('❌ Error en test rápido:', error);
+    ErrorHandler.logError('testFastPathRapido', error);
+  }
+}
+
+/**
+ * TEST: Validación específica de appendToIndexSheet
+ */
+function testAppendToIndexSheet() {
+  console.log('🧪 TESTING APPEND TO INDEX SHEET OPTIMIZADO');
+  console.log('============================================');
+  
+  try {
+    // 1. Generar clave de prueba
+    const testData = {
+      almaNombres: 'Test',
+      almaApellidos: 'Index',
+      almaTelefono: '5559998888'
+    };
+    
+    const key = DedupIndexService.generateKey(testData);
+    console.log(`🔑 Clave generada: ${key}`);
+    
+    // 2. Medir tiempo de appendToIndexSheet
+    console.log('\n2️⃣ Ejecutando appendToIndexSheet...');
+    const startTime = Date.now();
+    
+    DedupIndexService.appendToIndexSheet(key, 99999);
+    
+    const duration = Date.now() - startTime;
+    console.log(`⏱️ Tiempo appendToIndexSheet: ${duration}ms`);
+    
+    // 3. Validar velocidad
+    if (duration < 5000) { // Menos de 5 segundos
+      console.log('✅ TEST PASADO: appendToIndexSheet optimizado');
+      console.log(`🎯 Tiempo: ${duration}ms (objetivo: <5s)`);
+    } else {
+      console.log('❌ TEST FALLIDO: appendToIndexSheet lento');
+      console.log(`⚠️ Tiempo: ${duration}ms (límite: 5s)`);
+    }
+    
+    // 4. Verificar que se agregó al índice
+    console.log('\n3️⃣ Verificando que se agregó al índice...');
+    const indexKeySet = DedupIndexService.getIndexKeySet();
+    
+    if (indexKeySet.has(key)) {
+      console.log('✅ Clave agregada correctamente al índice');
+    } else {
+      console.log('⚠️ Clave no encontrada en el índice');
+    }
+    
+    console.log('\n✅ Test appendToIndexSheet completado');
+    
+  } catch (error) {
+    console.error('❌ Error en test appendToIndexSheet:', error);
+    ErrorHandler.logError('testAppendToIndexSheet', error);
+  }
+}
+
+/**
+ * TEST: Comparación de rendimiento antes/después
+ */
+function testComparacionRendimiento() {
+  console.log('🧪 TESTING COMPARACIÓN DE RENDIMIENTO');
+  console.log('=====================================');
+  
+  try {
+    // 1. Test con fastAppendToSheet (optimizado)
+    console.log('\n1️⃣ Probando fastAppendToSheet...');
+    const startTime1 = Date.now();
+    
+    const testRecord = ['TEST_KEY', 88888, new Date()];
+    const result1 = fastAppendToSheet('Index_Dedup', testRecord);
+    
+    const duration1 = Date.now() - startTime1;
+    console.log(`⏱️ fastAppendToSheet: ${duration1}ms`);
+    console.log(`📊 Resultado: ${result1.success ? 'ÉXITO' : 'FALLO'}`);
+    
+    // 2. Test con SpreadsheetApp (método antiguo)
+    console.log('\n2️⃣ Probando SpreadsheetApp (método antiguo)...');
+    const startTime2 = Date.now();
+    
+    try {
+      const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+      const sheet = ss.getSheetByName('Index_Dedup');
+      sheet.appendRow(['TEST_KEY_OLD', 77777, new Date()]);
+      const duration2 = Date.now() - startTime2;
+      
+      console.log(`⏱️ SpreadsheetApp: ${duration2}ms`);
+      console.log(`📊 Resultado: ÉXITO`);
+      
+      // 3. Comparación
+      console.log('\n3️⃣ Comparación de rendimiento:');
+      console.log('================================================');
+      console.log(`🚀 fastAppendToSheet: ${duration1}ms`);
+      console.log(`🐌 SpreadsheetApp: ${duration2}ms`);
+      
+      if (duration1 < duration2) {
+        const mejora = Math.round(((duration2 - duration1) / duration2) * 100);
+        console.log(`✅ Mejora: ${mejora}% más rápido`);
+      } else {
+        console.log(`⚠️ fastAppendToSheet fue más lento`);
+      }
+      
+    } catch (error) {
+      const duration2 = Date.now() - startTime2;
+      console.log(`⏱️ SpreadsheetApp: ${duration2}ms`);
+      console.log(`📊 Resultado: FALLO - ${error.message}`);
+    }
+    
+    console.log('\n✅ Comparación de rendimiento completada');
+    
+  } catch (error) {
+    console.error('❌ Error en comparación:', error);
+    ErrorHandler.logError('testComparacionRendimiento', error);
+  }
+}
